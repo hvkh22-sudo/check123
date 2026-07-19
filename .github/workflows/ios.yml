@@ -21,10 +21,12 @@ jobs:
       - name: Build & unit test (no signing)
         run: |
           set +e
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          echo "Using simulator id: $UDID"
           xcodebuild test \
             -project PassCheck.xcodeproj \
             -scheme PassCheck \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination "platform=iOS Simulator,id=$UDID" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
