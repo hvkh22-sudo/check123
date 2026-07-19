@@ -17,11 +17,18 @@ jobs:
         run: xcodegen generate
       - name: Build & unit test (no signing)
         run: |
-          set -o pipefail
+          set +e
           xcodebuild test \
             -project PassCheck.xcodeproj \
             -scheme PassCheck \
             -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
-            CODE_SIGNING_ALLOWED=NO | xcpretty
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "----- surfacing errors as annotations -----"
+            grep -E "error:|cannot find|Undefined symbol|no such module|is unavailable|Unable to find a destination" build.log | head -50 | sed 's/^/::error::/'
+            tail -25 build.log | sed 's/^/::error::/'
+            exit "$code"
+          fi
 # TestFlight upload is a separate, manual (workflow_dispatch) job added later once
 # signing secrets exist — see ../../CI_SETUP.md. The studio never auto-ships.

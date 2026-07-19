@@ -27,9 +27,9 @@ struct DocumentTypeView: View {
                     } label: {
                         HStack {
                             Image(systemName: selected == type ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(type.available ? Color.accentColor : .secondary)
+                                .foregroundStyle(type.available ? Color.accentColor : Color.secondary)
                             Text(type.rawValue)
-                                .foregroundStyle(type.available ? .primary : .secondary)
+                                .foregroundStyle(type.available ? Color.primary : Color.secondary)
                             Spacer()
                             if !type.available {
                                 Text("soon").font(.caption).foregroundStyle(.secondary)
