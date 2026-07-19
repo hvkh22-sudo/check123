@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import CoreImage
+import UIKit
 
 /// Screen 3 — capture or import a photo. Camera (AVFoundation) is wired on-device later;
 /// library import via PhotosPicker works now (also how we exercise the flow in the simulator).
@@ -9,6 +10,7 @@ struct CaptureView: View {
 
     @State private var pickerItem: PhotosPickerItem?
     @State private var loading = false
+    @State private var showCamera = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -25,15 +27,17 @@ struct CaptureView: View {
                 .padding(.horizontal)
             Spacer()
 
-            // Camera capture opens on a real device (added in the on-device build).
-            Button {
-                // no-op placeholder until AVFoundation camera is wired on-device
-            } label: {
-                Label("Take photo", systemImage: "camera")
-                    .frame(maxWidth: .infinity)
-                    .padding()
+            // Camera is available on a real device (not the simulator).
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    showCamera = true
+                } label: {
+                    Label("Take photo", systemImage: "camera")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
 
             PhotosPicker(selection: $pickerItem, matching: .images) {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
@@ -49,6 +53,12 @@ struct CaptureView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: pickerItem) { _ in
             Task { await loadSelectedPhoto() }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker(onImage: { uiImage in
+                if let ci = CIImage(image: uiImage) { onPhoto(ci) }
+            })
+            .ignoresSafeArea()
         }
     }
 

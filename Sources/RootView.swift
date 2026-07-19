@@ -11,7 +11,7 @@ struct RootView: View {
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
-    enum Route: Hashable { case documentType, capture, review, export, done }
+    enum Route: Hashable { case documentType, capture, review, adjust, export, done }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -29,8 +29,11 @@ struct RootView: View {
                     case .review:
                         if let report {
                             ComplianceReviewView(report: report,
-                                                 onContinue: { path.append(Route.export) })
+                                                 onContinue: { path.append(Route.adjust) })
                         }
+                    case .adjust:
+                        AssistedCropView(image: capturedImage,
+                                         onRecheck: { _ in path.append(Route.export) })
                     case .export:
                         ExportView(image: capturedImage,
                                    onDone: { path.append(Route.done) })
