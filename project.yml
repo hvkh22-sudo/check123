@@ -4,7 +4,7 @@ name: PassCheck
 options:
   bundleIdPrefix: com.appstudio
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "16.0"
   createIntermediateGroups: true
 settings:
   base:

@@ -41,7 +41,7 @@ struct DocumentTypeView: View {
                     if type != DocumentType.allCases.last { Divider() }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.12)))
 
             Spacer()
 
