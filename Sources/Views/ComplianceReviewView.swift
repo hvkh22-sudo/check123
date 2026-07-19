@@ -4,6 +4,7 @@ import SwiftUI
 /// See design/UX_SPEC.md §4.
 struct ComplianceReviewView: View {
     let report: ComplianceReport
+    var onContinue: () -> Void = {}
 
     private var failed: [RuleResult] { report.results.filter { $0.status == .verifiedFail } }
     private var verified: [RuleResult] { report.results.filter { $0.status == .verifiedPass } }
@@ -31,6 +32,16 @@ struct ComplianceReviewView: View {
         }
         .navigationTitle("Compliance check")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            Button(action: onContinue) {
+                Text("Looks good — export")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
     }
 
     private func ruleRow(_ r: RuleResult, icon: String, color: Color) -> some View {

@@ -1,17 +1,17 @@
 import SwiftUI
 import CoreImage
 
-/// App navigation flow: Intro → Document type → (capture) → Compliance review.
-/// Capture is stubbed for now (real AVFoundation camera + Vision land after CI is green);
-/// the flow runs the stub engine so the review screen is exercisable end-to-end.
+/// Full app flow: Intro → Document type → Capture → Compliance review → Export → Done.
+/// Capture uses library import for now (camera + real Vision engine land on-device).
 struct RootView: View {
     @State private var path = NavigationPath()
     @State private var docType: DocumentType = .usPassport
+    @State private var capturedImage: CIImage?
     @State private var report: ComplianceReport?
 
     private let engine: ComplianceEngine = StubComplianceEngine()
 
-    enum Route: Hashable { case documentType, review }
+    enum Route: Hashable { case documentType, capture, review, export, done }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -19,21 +19,30 @@ struct RootView: View {
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .documentType:
-                        DocumentTypeView(selected: $docType, onContinue: {
-                            Task { await runCheck() }
+                        DocumentTypeView(selected: $docType,
+                                         onContinue: { path.append(Route.capture) })
+                    case .capture:
+                        CaptureView(onPhoto: { image in
+                            capturedImage = image
+                            Task { await runCheck(image) }
                         })
                     case .review:
                         if let report {
-                            ComplianceReviewView(report: report)
+                            ComplianceReviewView(report: report,
+                                                 onContinue: { path.append(Route.export) })
                         }
+                    case .export:
+                        ExportView(image: capturedImage,
+                                   onDone: { path.append(Route.done) })
+                    case .done:
+                        DoneView(onRestart: { path = NavigationPath() })
                     }
                 }
         }
     }
 
-    private func runCheck() async {
-        // Placeholder input; real capture provides the CIImage. Stub ignores it for now.
-        report = await engine.analyze(CIImage.empty())
+    private func runCheck(_ image: CIImage) async {
+        report = await engine.analyze(image)
         path.append(Route.review)
     }
 }
