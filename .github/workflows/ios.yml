@@ -1,0 +1,27 @@
+name: iOS CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build & unit test (no signing)
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project PassCheck.xcodeproj \
+            -scheme PassCheck \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            CODE_SIGNING_ALLOWED=NO | xcpretty
+# TestFlight upload is a separate, manual (workflow_dispatch) job added later once
+# signing secrets exist — see ../../CI_SETUP.md. The studio never auto-ships.

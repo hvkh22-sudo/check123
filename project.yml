@@ -1,0 +1,39 @@
+# XcodeGen project spec — generates PassCheck.xcodeproj (no Mac needed to author this).
+# CI runs `xcodegen generate` then builds. Fill DEVELOPMENT_TEAM after Apple enrollment.
+name: PassCheck
+options:
+  bundleIdPrefix: com.appstudio
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "645SRC2PTY"   # Apple Team ID (owner's Apple Developer account)
+targets:
+  PassCheck:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: PassCheck
+        UILaunchScreen: {}
+        NSCameraUsageDescription: "Take your passport photo — it is processed only on this device and never uploaded."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck
+  PassCheckTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: PassCheck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck.tests
