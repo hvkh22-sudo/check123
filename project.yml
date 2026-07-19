@@ -22,6 +22,7 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: PassCheck
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSCameraUsageDescription: "Take your passport photo — it is processed only on this device and never uploaded."
     settings:

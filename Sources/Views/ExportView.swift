@@ -9,6 +9,7 @@ struct ExportView: View {
     var onDone: () -> Void
 
     @State private var unlocked = false
+    @StateObject private var store = Store()
 
     var body: some View {
         VStack(spacing: 18) {
@@ -37,9 +38,9 @@ struct ExportView: View {
                 Button("Done", action: onDone)
             } else {
                 Button {
-                    unlocked = true   // TODO: StoreKit 2 one-time purchase
+                    Task { if await store.purchase() { unlocked = true } }
                 } label: {
-                    Text("Unlock & export — $4.99")
+                    Text("Unlock & export — \(store.priceText)")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -53,6 +54,7 @@ struct ExportView: View {
         .padding()
         .navigationTitle("Export")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await store.load() }
     }
 
     @ViewBuilder
