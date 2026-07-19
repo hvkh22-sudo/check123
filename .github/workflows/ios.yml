@@ -35,5 +35,23 @@ jobs:
             tail -25 build.log | sed 's/^/::error::/'
             exit "$code"
           fi
-# TestFlight upload is a separate, manual (workflow_dispatch) job added later once
-# signing secrets exist — see ../../CI_SETUP.md. The studio never auto-ships.
+  # Manual-only (workflow_dispatch) TestFlight upload. Never auto-ships.
+  ship-testflight:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          gem install fastlane --no-document
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build & upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          xcodebuild -version
+          fastlane beta

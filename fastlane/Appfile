@@ -1,0 +1,2 @@
+app_identifier("com.appstudio.passcheck")
+# Apple ID / team come from the App Store Connect API key at runtime.
