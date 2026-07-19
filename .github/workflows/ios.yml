@@ -8,13 +8,16 @@ on:
 
 jobs:
   build-test:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          xcodegen generate
+          xcodebuild -version
+          ls -d *.xcodeproj
       - name: Build & unit test (no signing)
         run: |
           set +e
