@@ -9,7 +9,7 @@ struct RootView: View {
     @State private var capturedImage: CIImage?
     @State private var report: ComplianceReport?
 
-    private let engine: ComplianceEngine = StubComplianceEngine()
+    private let engine: ComplianceEngine = VisionComplianceEngine()
 
     enum Route: Hashable { case documentType, capture, review, export, done }
 
