@@ -77,7 +77,9 @@ jobs:
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             echo "----- surfacing errors -----"
-            grep -Ei "error|failed|invalid|missing|denied|unauthorized|not found|no profile|certificate" fl.log | head -40 | sed 's/^/::error::/'
-            tail -35 fl.log | sed 's/^/::error::/'
+            # One multi-line annotation with the log tail — GitHub caps the number of
+            # annotations, so many small ones push the real error out of view.
+            TAILTXT=$(tail -45 fl.log | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error::LOG TAIL%0A${TAILTXT}"
             exit "$code"
           fi
