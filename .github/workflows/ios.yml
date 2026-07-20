@@ -56,6 +56,25 @@ jobs:
         run: |
           set +e
           xcodebuild -version
+          # --- validate secrets (lengths only, never values) ---
+          echo "ASC_KEY_ID length: ${#ASC_KEY_ID}"
+          echo "ASC_ISSUER_ID length: ${#ASC_ISSUER_ID}"
+          echo "ASC_KEY_P8 length: ${#ASC_KEY_P8}"
+          if [ -z "$ASC_KEY_P8" ]; then
+            echo "::error::Secret ASC_KEY_P8 is empty or missing in repository settings."
+            exit 1
+          fi
+          # Accept either base64 or raw PEM in the secret.
+          printf '%s' "$ASC_KEY_P8" | tr -d '\r\n ' | base64 --decode > asc_key.p8 2>/dev/null
+          if ! grep -q "BEGIN PRIVATE KEY" asc_key.p8; then
+            printf '%s\n' "$ASC_KEY_P8" > asc_key.p8
+          fi
+          if ! grep -q "BEGIN PRIVATE KEY" asc_key.p8; then
+            echo "::error::ASC_KEY_P8 is neither valid base64 of a .p8 nor a raw .p8 PEM. Re-add the secret."
+            exit 1
+          fi
+          openssl pkey -in asc_key.p8 -noout && echo "private key parses OK"
+          export ASC_KEY_PATH="$PWD/asc_key.p8"
           fastlane beta 2>&1 | tee fl.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
