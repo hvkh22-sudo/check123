@@ -33,7 +33,8 @@ enum ExportPipeline {
                                   crownY: CGFloat,
                                   chinY: CGFloat) -> CIImage? {
         let extent = image.extent
-        guard extent.isFinite, extent.width > 0, extent.height > 0 else { return nil }
+        guard !extent.isInfinite, !extent.isEmpty,
+              extent.width > 0, extent.height > 0 else { return nil }
 
         let top = min(crownY, chinY)
         let bottom = max(crownY, chinY)
