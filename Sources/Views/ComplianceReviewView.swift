@@ -33,13 +33,24 @@ struct ComplianceReviewView: View {
         .navigationTitle("Compliance check")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
-            Button(action: onContinue) {
-                Text("Looks good — export")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
+            // An honest checker cannot sell an export for a photo it just told you is
+            // wrong. A hard ✗ stops here; retaking is free, the export is not.
+            VStack(spacing: 6) {
+                Button(action: onContinue) {
+                    Text(failed.isEmpty ? "Looks good — export" : "Fix the items above first")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!failed.isEmpty)
+
+                if !failed.isEmpty {
+                    Text("Retake the photo — checks are always free.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderedProminent)
             .padding()
         }
     }

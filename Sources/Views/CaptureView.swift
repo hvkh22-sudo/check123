@@ -11,6 +11,7 @@ struct CaptureView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var loading = false
     @State private var showCamera = false
+    @State private var errorText: String?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -25,6 +26,15 @@ struct CaptureView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
+
+            if let errorText {
+                Text(errorText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
             Spacer()
 
             // Camera is available on a real device (not the simulator).
@@ -56,7 +66,11 @@ struct CaptureView: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker(onImage: { uiImage in
-                if let ci = CIImage(image: uiImage) { onPhoto(ci) }
+                if let ci = CIImage(image: uiImage) {
+                    onPhoto(ci.uprighted(from: uiImage.imageOrientation))
+                } else {
+                    errorText = "That photo couldn't be read. Please try again."
+                }
             })
             .ignoresSafeArea()
         }
@@ -68,7 +82,9 @@ struct CaptureView: View {
         defer { loading = false }
         if let data = try? await pickerItem.loadTransferable(type: Data.self),
            let ciImage = CIImage(data: data) {
-            onPhoto(ciImage)
+            onPhoto(ciImage.uprighted())
+        } else {
+            errorText = "That photo couldn't be read. Try a different one."
         }
     }
 }

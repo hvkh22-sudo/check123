@@ -13,6 +13,8 @@ struct VisionComplianceEngine: ComplianceEngine {
         let landmarksReq = VNDetectFaceLandmarksRequest()
         let qualityReq = VNDetectFaceCaptureQualityRequest()
 
+        // `.up` is correct because both capture paths bake EXIF orientation into the
+        // pixels before we get here (see CIImage.uprighted()).
         let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [:])
         do {
             try handler.perform([landmarksReq, qualityReq])
@@ -37,13 +39,13 @@ struct VisionComplianceEngine: ComplianceEngine {
         let maxTilt = max(abs(degrees(face.roll)), abs(degrees(face.yaw)))
         results.append(RuleResult(
             id: "head.tilt",
-            status: maxTilt <= 8 ? .verifiedPass : .verifiedFail,
+            status: maxTilt <= PassportRules.rollToleranceDeg ? .verifiedPass : .verifiedFail,
             measured: maxTilt, unit: "°",
-            message: maxTilt <= 8 ? "Head is straight." : "Face the camera straight — you're tilted \(Int(maxTilt))°."))
+            message: maxTilt <= PassportRules.rollToleranceDeg ? "Head is straight." : "Face the camera straight — you're tilted \(Int(maxTilt))°."))
 
         // Centering (bounding-box mid-x)
         let cx = face.boundingBox.midX
-        let centered = abs(cx - 0.5) <= 0.10
+        let centered = abs(cx - 0.5) <= PassportRules.centeringTolerance
         results.append(RuleResult(
             id: "head.centered",
             status: centered ? .verifiedPass : .verifiedFail,
@@ -55,9 +57,9 @@ struct VisionComplianceEngine: ComplianceEngine {
             let minOpen = min(le, re)
             results.append(RuleResult(
                 id: "face.eyesopen",
-                status: minOpen >= 0.22 ? .verifiedPass : .verifiedFail,
+                status: minOpen >= PassportRules.earThreshold ? .verifiedPass : .verifiedFail,
                 measured: nil, unit: nil,
-                message: minOpen >= 0.22 ? "Both eyes open." : "Keep both eyes open."))
+                message: minOpen >= PassportRules.earThreshold ? "Both eyes open." : "Keep both eyes open."))
         } else {
             results.append(RuleResult(id: "face.eyesopen", status: .confirm, measured: nil, unit: nil,
                                       message: "Couldn't measure eyes — make sure both are open."))

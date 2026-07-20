@@ -19,6 +19,9 @@ enum PassportRules {
     static let yawToleranceDeg = 6.0
     static let pitchToleranceDeg = 8.0
 
+    /// Max distance of the face's horizontal midpoint from centre, as a fraction (tune).
+    static let centeringTolerance = 0.10
+
     // Eyes-open EAR threshold (tune)
     static let earThreshold = 0.20
 
