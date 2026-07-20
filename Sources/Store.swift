@@ -37,13 +37,20 @@ final class Store: ObservableObject {
     }
 
     func refreshEntitlements() async {
+        var entitled = false
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
-               transaction.productID == Self.exportProductID {
-                purchased = true
+               transaction.productID == Self.exportProductID,
+               transaction.revocationDate == nil {   // a refunded purchase loses access
+                entitled = true
             }
         }
+        // Never downgrade a test unlock — it has no transaction to find.
+        if entitled || !unlockedForTesting { purchased = entitled }
     }
+
+    /// Set only by the non-release fallback, so `refreshEntitlements()` doesn't revoke it.
+    private var unlockedForTesting = false
 
     /// Attempts the purchase. Returns true when the export may be unlocked.
     func purchase() async -> Bool {
@@ -51,6 +58,7 @@ final class Store: ObservableObject {
 
         guard let product else {
             if Self.allowsTestUnlock {
+                unlockedForTesting = true
                 purchased = true
                 return true
             }

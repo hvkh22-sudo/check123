@@ -38,7 +38,9 @@ struct IntroView: View {
             }
             .buttonStyle(.borderedProminent)
 
-            Text("Your photo never leaves this phone")
+            // Precise on purpose: the app never uploads, but ShareLink hands the image
+            // to whatever the user picks. Claiming more than the code does is a review risk.
+            Text("PassCheck never uploads your photo. Sharing is always your choice.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

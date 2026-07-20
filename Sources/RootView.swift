@@ -38,7 +38,13 @@ struct RootView: View {
                         ExportView(image: capturedImage,
                                    onDone: { path.append(Route.done) })
                     case .done:
-                        DoneView(onRestart: { path = NavigationPath() })
+                        DoneView(onRestart: {
+                            // The privacy policy promises the photo is gone once you
+                            // export or leave — actually drop it, don't just navigate.
+                            capturedImage = nil
+                            report = nil
+                            path = NavigationPath()
+                        })
                     }
                 }
         }

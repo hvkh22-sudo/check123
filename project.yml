@@ -28,6 +28,9 @@ targets:
         # and iPhone-only avoids untestable iPad multitasking requirements.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: "Take your passport photo — it is processed only on this device and never uploaded."
+        # Required by the Save Image path in the share sheet. Without it iOS terminates
+        # the app the moment the user saves — on the screen they just paid for.
+        NSPhotoLibraryAddUsageDescription: "Save your finished passport photo to your photo library. It stays on this device."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck
