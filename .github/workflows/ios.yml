@@ -2,6 +2,7 @@ name: iOS CI
 on:
   push:
     branches: [ main ]
+    tags: [ 'ship-*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch: {}
@@ -37,7 +38,7 @@ jobs:
           fi
   # Manual-only (workflow_dispatch) TestFlight upload. Never auto-ships.
   ship-testflight:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/ship-')
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -53,5 +54,13 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
+          set +e
           xcodebuild -version
-          fastlane beta
+          fastlane beta 2>&1 | tee fl.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "----- surfacing errors -----"
+            grep -Ei "error|failed|invalid|missing|denied|unauthorized|not found|no profile|certificate" fl.log | head -40 | sed 's/^/::error::/'
+            tail -35 fl.log | sed 's/^/::error::/'
+            exit "$code"
+          fi
