@@ -53,7 +53,12 @@ platform :ios do
       UI.success("Revoked #{revoked} unusable certificate(s) — creating a fresh one.")
       cert(cert_opts)
     end
-    # Registers the bundle identifier on the developer portal if it doesn't exist yet.
+    # sigh needs the bundle identifier to already exist on the developer portal.
+    if Spaceship::ConnectAPI::BundleId.find(APP_ID).nil?
+      UI.important("Registering bundle identifier #{APP_ID}")
+      Spaceship::ConnectAPI::BundleId.create(name: "PassCheck", identifier: APP_ID)
+    end
+
     sigh(api_key: api_key, app_identifier: APP_ID, team_id: TEAM_ID)
 
     profile_name = lane_context[SharedValues::SIGH_NAME]
