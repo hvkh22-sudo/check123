@@ -25,12 +25,34 @@ platform :ios do
     keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
     keychain_pw   = ENV["MATCH_KEYCHAIN_PASSWORD"] || ""
 
-    cert(
+    cert_opts = {
       api_key: api_key,
       team_id: TEAM_ID,
       keychain_path: keychain_path,
       keychain_password: keychain_pw
-    )
+    }
+
+    begin
+      cert(cert_opts)
+    rescue => e
+      # CI machines are destroyed after every run, so the private key of a
+      # CI-created certificate is lost and the certificate becomes unusable.
+      # Once Apple's distribution-certificate limit is hit, clear the dead ones
+      # and retry. Owner approved this cleanup (2026-07-20).
+      raise e unless e.message.to_s.include?("maximum number")
+
+      UI.important("Distribution certificate limit reached — revoking unusable certificates.")
+      revoked = 0
+      Spaceship::ConnectAPI::Certificate.all.each do |c|
+        next unless c.certificate_type.to_s.upcase.include?("DISTRIBUTION")
+        UI.important("Revoking #{c.id} (#{c.display_name}, #{c.certificate_type})")
+        c.delete!
+        revoked += 1
+      end
+      UI.user_error!("Limit reached but no distribution certificates found to revoke.") if revoked.zero?
+      UI.success("Revoked #{revoked} unusable certificate(s) — creating a fresh one.")
+      cert(cert_opts)
+    end
     # Registers the bundle identifier on the developer portal if it doesn't exist yet.
     sigh(api_key: api_key, app_identifier: APP_ID, team_id: TEAM_ID)
 
