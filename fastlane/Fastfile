@@ -1,36 +1,60 @@
 default_platform(:ios)
 
+APP_ID  = "com.appstudio.passcheck"
+TEAM_ID = "645SRC2PTY"
+
 platform :ios do
-  desc "Build PassCheck and upload to TestFlight (uses App Store Connect API key)"
+  desc "Build PassCheck and upload to TestFlight (App Store Connect API key, manual signing)"
   lane :beta do
+    # CI machines have no login keychain / Apple account. This creates a temporary
+    # keychain so the signing certificate can be imported.
+    setup_ci
+
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
       key_filepath: ENV["ASC_KEY_PATH"] || "asc_key.p8"
     )
 
-    # Create the app record in App Store Connect if it doesn't exist yet.
-    # (app_name must be unique on the App Store — adjust if taken.)
+    # Create the App Store Connect app record on first run; harmless afterwards.
     begin
       produce(
-        app_identifier: "com.appstudio.passcheck",
+        app_identifier: APP_ID,
         app_name: "PassCheck Photo Checker",
         language: "English",
         sku: "passcheck-0001",
-        api_key: api_key
+        team_id: TEAM_ID
       )
     rescue => e
       UI.important("produce skipped/failed (app may already exist): #{e}")
     end
 
+    # Fetch/create the distribution certificate and App Store provisioning profile.
+    cert(api_key: api_key, team_id: TEAM_ID)
+    sigh(api_key: api_key, app_identifier: APP_ID, team_id: TEAM_ID)
+
+    profile_name = lane_context[SharedValues::SIGH_NAME]
+    UI.message("Using provisioning profile: #{profile_name}")
+
+    # Automatic signing cannot work without a logged-in Xcode account — switch to manual.
+    update_code_signing_settings(
+      path: "PassCheck.xcodeproj",
+      use_automatic_signing: false,
+      team_id: TEAM_ID,
+      targets: ["PassCheck"],
+      code_sign_identity: "Apple Distribution",
+      profile_name: profile_name
+    )
+
     build_app(
       project: "PassCheck.xcodeproj",
       scheme: "PassCheck",
       export_method: "app-store",
-      xcargs: "-allowProvisioningUpdates",
+      skip_profile_detection: true,
       export_options: {
-        signingStyle: "automatic",
-        teamID: "645SRC2PTY"
+        signingStyle: "manual",
+        teamID: TEAM_ID,
+        provisioningProfiles: { APP_ID => profile_name }
       }
     )
 
