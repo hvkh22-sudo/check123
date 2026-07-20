@@ -2,7 +2,6 @@ name: iOS CI
 on:
   push:
     branches: [ main ]
-    tags: [ 'ship-*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch: {}
@@ -38,7 +37,8 @@ jobs:
           fi
   # Manual-only (workflow_dispatch) TestFlight upload. Never auto-ships.
   ship-testflight:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/ship-')
+    needs: build-test
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -54,14 +54,15 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
-          set +e
+          set -uo pipefail
           xcodebuild -version
-          # --- validate secrets (lengths only, never values) ---
-          echo "::warning::secret lengths — KEY_ID=${#ASC_KEY_ID} (expect 10), ISSUER_ID=${#ASC_ISSUER_ID} (expect 36), KEY_P8=${#ASC_KEY_P8} (expect 344)"
-          if [ -z "$ASC_KEY_P8" ]; then
-            echo "::error::Secret ASC_KEY_P8 is empty or missing in repository settings."
-            exit 1
-          fi
+          trap 'rm -f asc_key.p8 fl.log' EXIT
+          for secret_name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "::error::Required secret ${secret_name} is empty or missing."
+              exit 1
+            fi
+          done
           # Accept either base64 or raw PEM in the secret.
           printf '%s' "$ASC_KEY_P8" | tr -d '\r\n ' | base64 --decode > asc_key.p8 2>/dev/null
           if ! grep -q "BEGIN PRIVATE KEY" asc_key.p8; then
@@ -71,7 +72,11 @@ jobs:
             echo "::error::ASC_KEY_P8 is neither valid base64 of a .p8 nor a raw .p8 PEM. Re-add the secret."
             exit 1
           fi
-          openssl pkey -in asc_key.p8 -noout && echo "private key parses OK"
+          if ! openssl pkey -in asc_key.p8 -noout; then
+            echo "::error::ASC_KEY_P8 contains a PEM header but the private key does not parse."
+            exit 1
+          fi
+          echo "Private key parses OK."
           export ASC_KEY_PATH="$PWD/asc_key.p8"
           fastlane beta 2>&1 | tee fl.log
           code=${PIPESTATUS[0]}

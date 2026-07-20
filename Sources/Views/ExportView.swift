@@ -8,8 +8,10 @@ struct ExportView: View {
     let image: CIImage?
     var onDone: () -> Void
 
-    @State private var unlocked = false
     @StateObject private var store = Store()
+    @State private var isPurchasing = false
+
+    private var unlocked: Bool { store.purchased }
 
     var body: some View {
         VStack(spacing: 18) {
@@ -38,17 +40,40 @@ struct ExportView: View {
                 Button("Done", action: onDone)
             } else {
                 Button {
-                    Task { if await store.purchase() { unlocked = true } }
+                    Task {
+                        isPurchasing = true
+                        _ = await store.purchase()
+                        isPurchasing = false
+                    }
                 } label: {
-                    Text("Unlock & export — \(store.priceText)")
+                    Text(isPurchasing ? "Contacting the App Store…" : "Unlock & export — \(store.priceText)")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isPurchasing)
+
+                Button("Restore purchase") {
+                    Task {
+                        isPurchasing = true
+                        await store.restore()
+                        isPurchasing = false
+                    }
+                }
+                .font(.footnote)
+                .disabled(isPurchasing)
+
                 Text("One-time · no subscription")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let message = store.errorMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .padding()
