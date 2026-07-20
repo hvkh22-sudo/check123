@@ -72,11 +72,16 @@ struct VisionComplianceEngine: ComplianceEngine {
                 message: q >= 0.5 ? "Photo is sharp." : "Looks blurry or low quality — retake."))
         }
 
-        // Head height — assisted (no crown landmark; crop guides measure it)
+        // Head height — assisted. Vision has no crown landmark, so this is an estimate
+        // that reads low until PassportRules.crownExtensionFactor is calibrated (spike R-A).
+        let headPct = PassportRules.estimatedHeadHeightPct(
+            faceBoxHeightFraction: Double(face.boundingBox.height))
         results.append(RuleResult(
             id: "head.height", status: .assisted,
-            measured: Double(face.boundingBox.height) * 100, unit: "%",
-            message: "Head size — align the crown and chin guides to check."))
+            measured: headPct, unit: "%",
+            message: PassportRules.isHeadHeightCalibrated
+                ? "Head size — align the crown and chin guides to confirm."
+                : "Head size can't be measured automatically — align the crown and chin guides."))
 
         // Not machine-verifiable → honest user-confirm items
         results.append(RuleResult(id: "bg.plain", status: .confirm, measured: nil, unit: nil,

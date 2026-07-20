@@ -30,4 +30,26 @@ enum PassportRules {
     static func headHeightInBand(_ pct: Double) -> Bool {
         pct >= headHeightMinPct && pct <= headHeightMaxPct
     }
+
+    // MARK: - Head height calibration (spike R-A)
+
+    /// Converts Vision's face bounding-box height into estimated chin-to-crown height.
+    ///
+    /// Vision's box stops near the hairline, so it systematically UNDER-measures the
+    /// chin-to-crown distance the passport spec requires. This factor is the correction,
+    /// and it is **not calibrated yet**: 1.0 means "report Vision's box unchanged".
+    /// Derive the real value from labelled device photos (see `qa/SAMPLE_SET_SPEC.md`),
+    /// then change only this constant — nothing else depends on the number.
+    static let crownExtensionFactor = 1.0
+
+    /// False until `crownExtensionFactor` is derived from real photos. While false the
+    /// head-height rule must stay `.assisted` and must not be presented as a measurement.
+    static var isHeadHeightCalibrated: Bool { crownExtensionFactor != 1.0 }
+
+    /// Estimated chin-to-crown height as a percentage of frame height.
+    /// - Parameter faceBoxHeightFraction: Vision bounding-box height, 0...1 of frame height.
+    static func estimatedHeadHeightPct(faceBoxHeightFraction: Double) -> Double {
+        let pct = faceBoxHeightFraction * crownExtensionFactor * 100
+        return min(max(pct, 0), 100)
+    }
 }
