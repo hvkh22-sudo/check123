@@ -24,11 +24,15 @@ targets:
         CFBundleDisplayName: PassCheck
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        # Portrait-only: the capture/crop flow is designed for one orientation,
+        # and iPhone-only avoids untestable iPad multitasking requirements.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: "Take your passport photo — it is processed only on this device and never uploaded."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only (MVP scope)
   PassCheckTests:
     type: bundle.unit-test
     platform: iOS
