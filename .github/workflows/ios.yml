@@ -57,9 +57,7 @@ jobs:
           set +e
           xcodebuild -version
           # --- validate secrets (lengths only, never values) ---
-          echo "ASC_KEY_ID length: ${#ASC_KEY_ID}"
-          echo "ASC_ISSUER_ID length: ${#ASC_ISSUER_ID}"
-          echo "ASC_KEY_P8 length: ${#ASC_KEY_P8}"
+          echo "::warning::secret lengths — KEY_ID=${#ASC_KEY_ID} (expect 10), ISSUER_ID=${#ASC_ISSUER_ID} (expect 36), KEY_P8=${#ASC_KEY_P8} (expect 344)"
           if [ -z "$ASC_KEY_P8" ]; then
             echo "::error::Secret ASC_KEY_P8 is empty or missing in repository settings."
             exit 1
