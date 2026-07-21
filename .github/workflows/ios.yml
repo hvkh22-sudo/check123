@@ -2,6 +2,10 @@ name: iOS CI
 on:
   push:
     branches: [ main ]
+    # Owner authorised this on 2026-07-21 so the upload can be iterated without a manual
+    # click on every attempt. Only a deliberate ship-* tag ships; ordinary commits never do.
+    # Revert to workflow_dispatch-only once the pipeline is green.
+    tags: [ 'ship-*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch: {}
@@ -38,7 +42,7 @@ jobs:
   # Manual-only (workflow_dispatch) TestFlight upload. Never auto-ships.
   ship-testflight:
     needs: build-test
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/ship-')
     runs-on: macos-26
     permissions:
       contents: write   # only to publish the failure log to the ci-logs branch
