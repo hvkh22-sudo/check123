@@ -40,6 +40,8 @@ jobs:
     needs: build-test
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
+    permissions:
+      contents: write   # only to publish the failure log to the ci-logs branch
     steps:
       - uses: actions/checkout@v4
       - name: Install tools
@@ -61,7 +63,9 @@ jobs:
         run: |
           set -uo pipefail
           xcodebuild -version
-          trap 'rm -f asc_key.p8 fl.log' EXIT
+          # The key must not survive the step. fl.log must, so the next step can publish
+          # the failure — annotations proved unreliable for anything log-sized.
+          trap 'rm -f asc_key.p8' EXIT
           for secret_name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
             if [ -z "${!secret_name:-}" ]; then
               echo "::error::Required secret ${secret_name} is empty or missing."
@@ -96,3 +100,29 @@ jobs:
             echo "::error::LOG TAIL%0A${TAILTXT}"
             exit "$code"
           fi
+      # GitHub drops oversized annotations, and the raw logs need authentication to read.
+      # Publishing a sanitised excerpt to a dedicated branch makes failures self-reporting.
+      - name: Publish failure log
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "run:        ${GITHUB_RUN_NUMBER}"
+            echo "commit:     ${GITHUB_SHA}"
+            echo "=== matched error lines ==="
+            grep -aE '^\[!\]|error:|Validation failed|ERROR ITMS|Could not|failed' fl.log | tail -25
+            echo "=== last 40 lines ==="
+            tail -40 fl.log
+          } 2>/dev/null \
+            | sed -e 's/\x1b\[[0-9;]*m//g' \
+            | grep -av 'PRIVATE KEY' \
+            | grep -avE '[A-Za-z0-9+/]{100,}' \
+            > ci-error.txt
+          echo "--- published excerpt ---"
+          cat ci-error.txt
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git switch --orphan ci-logs
+          git add -f ci-error.txt
+          git commit -q -m "CI failure log for run ${GITHUB_RUN_NUMBER}"
+          git push -f origin ci-logs
