@@ -22,6 +22,11 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: PassCheck
+        # Without these, XcodeGen bakes a literal "1" into the Info.plist and the build
+        # settings are ignored — which is why three uploads were rejected for reusing
+        # build number 1. Referencing the settings lets CI override the build number.
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         # Portrait-only: the capture/crop flow is designed for one orientation,
