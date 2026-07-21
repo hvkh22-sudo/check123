@@ -8,7 +8,10 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
+    # Must stay above the very first upload's default of 1.0: iOS never offers an
+    # "update" to a lower version, so builds published under 0.1.0 were invisible to
+    # a device already running 1.0 (1) — which looked like the uploads were failing.
+    MARKETING_VERSION: "1.0.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: "645SRC2PTY"   # Apple Team ID (owner's Apple Developer account)
