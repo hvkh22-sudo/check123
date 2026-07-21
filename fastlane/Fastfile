@@ -101,7 +101,10 @@ platform :ios do
 
     upload_to_testflight(
       api_key: api_key,
-      skip_waiting_for_build_processing: false
+      # Don't idle on a macOS runner (billed at 10x) waiting for Apple to finish
+      # processing. The upload succeeding is the signal that matters; processing
+      # failures arrive by email and show in App Store Connect either way.
+      skip_waiting_for_build_processing: true
     )
   end
 end
