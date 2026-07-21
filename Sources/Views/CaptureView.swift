@@ -11,6 +11,7 @@ struct CaptureView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var loading = false
     @State private var showCamera = false
+    @State private var showLibraryFallback = false
     @State private var errorText: String?
 
     var body: some View {
@@ -42,7 +43,7 @@ struct CaptureView: View {
                 Button {
                     showCamera = true
                 } label: {
-                    Label("Take photo", systemImage: "camera")
+                    Label("Take photo with live guidance", systemImage: "camera.viewfinder")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
@@ -65,15 +66,13 @@ struct CaptureView: View {
             Task { await loadSelectedPhoto() }
         }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker(onImage: { uiImage in
-                if let ci = CIImage(image: uiImage) {
-                    onPhoto(ci.uprighted(from: uiImage.imageOrientation))
-                } else {
-                    errorText = "That photo couldn't be read. Please try again."
-                }
-            })
+            LiveCaptureView(
+                onPhoto: { onPhoto($0) },
+                onFallback: { showLibraryFallback = true }
+            )
             .ignoresSafeArea()
         }
+        .photosPicker(isPresented: $showLibraryFallback, selection: $pickerItem, matching: .images)
     }
 
     private func loadSelectedPhoto() async {
