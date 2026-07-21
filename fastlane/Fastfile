@@ -35,7 +35,29 @@ platform :ios do
     begin
       cert(cert_opts)
     rescue => e
-      UI.user_error!("Could not obtain a distribution certificate. No certificates were revoked automatically. Resolve signing assets explicitly, then retry. Original error: #{e.message}")
+      # Only ever triggered by Apple's "maximum number of certificates" response.
+      #
+      # CI runners are destroyed after every run, so the private key of a certificate
+      # created here is gone the moment the job ends and the certificate can never sign
+      # anything again. The owner has no Mac, so no local key exists either — these are
+      # dead entries occupying a hard limit of two.
+      #
+      # Owner approved this cleanup explicitly on 2026-07-20 and again on 2026-07-21.
+      # It is a stopgap: the permanent fix is a single stable certificate stored as a
+      # secret and imported each run, which removes this branch entirely. See D-015.
+      raise e unless e.message.to_s.include?("maximum number")
+
+      UI.important("Distribution certificate limit reached — clearing unusable certificates.")
+      revoked = []
+      Spaceship::ConnectAPI::Certificate.all.each do |c|
+        next unless c.certificate_type.to_s.upcase.include?("DISTRIBUTION")
+        UI.important("Revoking #{c.id} (#{c.display_name}, #{c.certificate_type})")
+        c.delete!
+        revoked << c.id
+      end
+      UI.user_error!("Hit the certificate limit but found none to clear.") if revoked.empty?
+      UI.success("Cleared #{revoked.count}: #{revoked.join(', ')} — creating a fresh certificate.")
+      cert(cert_opts)
     end
     # sigh needs the bundle identifier to already exist on the developer portal.
     if Spaceship::ConnectAPI::BundleId.find(APP_ID).nil?
