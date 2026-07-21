@@ -1,0 +1,46 @@
+run:        53
+commit:     18c7bbf58f56ee6bc5681e65a9b387fca95115d2
+=== matched error lines ===
+[16:03:24]: Could not download/upload from App Store Connect!
+[!] Error uploading ipa file: 
+=== last 40 lines ===
+| SIGH_UUID                 | b66dbc98-1609-47b0-800c-a407097715a2                                                              |
+| SIGH_NAME                 | com.appstudio.passcheck AppStore 1784649741                                                       |
+| SIGH_PROFILE_TYPE         | app-store                                                                                         |
+| IPA_OUTPUT_PATH           | /Users/runner/work/check123/check123/PassCheck.ipa                                                |
+| XCODEBUILD_ARCHIVE        | /Users/runner/Library/Developer/Xcode/Archives/2026-07-21/PassCheck 2026-07-21 16.02.43.xcarchive |
+| DSYM_OUTPUT_PATH          | /Users/runner/work/check123/check123/PassCheck.app.dSYM.zip                                       |
++---------------------------+---------------------------------------------------------------------------------------------------+
+[16:03:24]: Called from Fastfile at line 102
+[16:03:24]: ```
+[16:03:24]:     100:	    )
+[16:03:24]:     101:	
+[16:03:24]:  => 102:	    upload_to_testflight(
+[16:03:24]:     103:	      api_key: api_key,
+[16:03:24]:     104:	      skip_waiting_for_build_processing: false
+[16:03:24]: ```
+
++---------------------------------------------------+
+|                 fastlane summary                  |
++------+------------------------------+-------------+
+| Step | Action                       | Time (in s) |
++------+------------------------------+-------------+
+| 1    | default_platform             | 0           |
+| 2    | setup_ci                     | 0           |
+| 3    | app_store_connect_api_key    | 0           |
+| 💥   | cert                         | 3           |
+| 5    | cert                         | 1           |
+| 6    | sigh                         | 3           |
+| 7    | update_code_signing_settings | 0           |
+| 8    | build_app                    | 55          |
+| 💥   | upload_to_testflight         | 5           |
++------+------------------------------+-------------+
+
+[16:03:24]: fastlane finished with errors
+
+[!] Error uploading ipa file: 
+ [Application Loader Error Output]: [ContentDelivery.Uploader.BA5028340] The provided entity includes an attribute with a value that has already been used (-19232) The bundle version must be higher than the previously uploaded version: ‘1’. (ID: 001aef85-4da1-4f68-8920-0cbaca384c84)
+[Application Loader Error Output]: [altool.BA5028340] Failed to upload package.
+[Application Loader Error Output]: [altool.BA5028340] The provided entity includes an attribute with a value that has already been used (-19232) The bundle version must be higher than the previously uploaded version: ‘1’. (ID: 001aef85-4da1-4f68-8920-0cbaca384c84)
+[Application Loader Error Output]: [altool.100FA6D30] ExitFailure (31)
+[Application Loader Error Output]: The call to the altool completed with a non-zero exit status: 1. This indicates a failure.
