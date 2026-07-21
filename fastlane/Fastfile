@@ -79,11 +79,19 @@ platform :ios do
       profile_name: profile_name
     )
 
+    # Apple rejects a build number it has already seen. Deriving it from the CI run
+    # number makes it strictly increasing. Passed as a build setting rather than edited
+    # into project.yml, because in-place `sed` is not portable across runner images and
+    # failed silently there — the upload was rejected for reusing build "1".
+    build_number = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%y%m%d%H%M")
+    UI.message("Building as version #{build_number}")
+
     build_app(
       project: "PassCheck.xcodeproj",
       scheme: "PassCheck",
       export_method: "app-store",
       skip_profile_detection: true,
+      xcargs: "CURRENT_PROJECT_VERSION=#{build_number}",
       export_options: {
         signingStyle: "manual",
         teamID: TEAM_ID,

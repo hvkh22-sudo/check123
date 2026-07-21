@@ -53,12 +53,7 @@ jobs:
           brew install xcodegen
           gem install fastlane --no-document
       - name: Generate Xcode project
-        run: |
-          # Apple rejects a build whose number was already uploaded. Tying it to the run
-          # number makes it strictly increasing, so this can never collide again.
-          sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"${GITHUB_RUN_NUMBER}\"/" project.yml
-          grep CURRENT_PROJECT_VERSION project.yml
-          xcodegen generate
+        run: xcodegen generate   # build number is set by the Fastfile, not edited in here
       - name: Build & upload to TestFlight
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
