@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var capturedImage: CIImage?
     @State private var exportImage: CIImage?
     @State private var report: ComplianceReport?
+    @State private var isAnalyzing = false
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
@@ -28,9 +29,38 @@ struct RootView: View {
                             Task { await runCheck(image) }
                         })
                     case .review:
+                        // Never render nothing here. Before this had a bare `if let`, so a
+                        // report that wasn't ready left a blank screen with no way out —
+                        // the first thing the owner hit on a real device.
                         if let report {
                             ComplianceReviewView(report: report,
                                                  onContinue: { path.append(Route.adjust) })
+                        } else if isAnalyzing {
+                            VStack(spacing: 14) {
+                                ProgressView()
+                                Text("Checking your photo…")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            .navigationTitle("Compliance check")
+                            .navigationBarTitleDisplayMode(.inline)
+                        } else {
+                            VStack(spacing: 14) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.largeTitle).foregroundStyle(.orange)
+                                Text("That photo couldn't be checked.")
+                                    .font(.headline)
+                                Text("Take a new photo of your face against a plain, light wall.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                Button("Try another photo") {
+                                    path = NavigationPath()
+                                    path.append(Route.capture)
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                            .padding()
+                            .navigationTitle("Compliance check")
+                            .navigationBarTitleDisplayMode(.inline)
                         }
                     case .adjust:
                         AssistedCropView(image: capturedImage,
@@ -61,8 +91,13 @@ struct RootView: View {
     }
 
     private func runCheck(_ image: CIImage) async {
-        report = await engine.analyze(image)
+        // Navigate first so the user sees progress instead of a frozen capture screen,
+        // then fill in the result.
+        report = nil
+        isAnalyzing = true
         path.append(Route.review)
+        report = await engine.analyze(image)
+        isAnalyzing = false
     }
 }
 

@@ -15,6 +15,15 @@ struct IntroView: View {
                 .font(.title.bold())
                 .multilineTextAlignment(.center)
 
+            // The first real tester photographed his passport booklet instead of his face,
+            // and thought he needed to own a US passport. Say plainly what to point the
+            // camera at, and that this checks a photo rather than a document.
+            Text("Take a selfie against a plain, light wall — we check it against the official US passport photo rules. You don't need a passport to use this.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
             VStack(alignment: .leading, spacing: 12) {
                 Label("Checks against the official US rules", systemImage: "checklist")
                 Label("Runs 100% on your phone", systemImage: "iphone")
