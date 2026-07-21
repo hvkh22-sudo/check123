@@ -47,7 +47,12 @@ jobs:
           brew install xcodegen
           gem install fastlane --no-document
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          # Apple rejects a build whose number was already uploaded. Tying it to the run
+          # number makes it strictly increasing, so this can never collide again.
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"${GITHUB_RUN_NUMBER}\"/" project.yml
+          grep CURRENT_PROJECT_VERSION project.yml
+          xcodegen generate
       - name: Build & upload to TestFlight
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -84,7 +89,10 @@ jobs:
             echo "----- surfacing errors -----"
             # One multi-line annotation with the log tail — GitHub caps the number of
             # annotations, so many small ones push the real error out of view.
-            TAILTXT=$(tail -45 fl.log | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            # Keep this small: GitHub silently drops annotations that get too large,
+            # which is how the real error went missing on runs 42 and 44.
+            TAILTXT=$(grep -E "^\[!\]|error:|Validation failed|ERROR ITMS" fl.log | tail -6 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
+            [ -z "$TAILTXT" ] && TAILTXT=$(tail -8 fl.log | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
             echo "::error::LOG TAIL%0A${TAILTXT}"
             exit "$code"
           fi
