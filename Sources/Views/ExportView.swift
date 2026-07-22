@@ -33,6 +33,14 @@ struct ExportView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                if let ui = renderedImage {
+                    // Show the real output size — reassures the user the file meets the
+                    // 600–1200px passport requirement, and is our own proof it's correct.
+                    Label("\(Int(ui.size.width)) × \(Int(ui.size.height)) px",
+                          systemImage: "checkmark.seal.fill")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.green)
+                }
             } else {
                 Text("Couldn't prepare the photo")
                     .font(.title3.bold())

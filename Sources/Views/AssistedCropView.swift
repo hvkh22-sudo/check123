@@ -52,18 +52,20 @@ struct AssistedCropView: View {
             .frame(maxHeight: 360)
 
             if hasAdjusted {
-                HStack(spacing: 8) {
-                    Text("Head height: \(Int(headHeightPct))%").font(.headline)
-                    Image(systemName: inBand ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(inBand ? .green : .orange)
-                }
-                Text("Measured from your guides — target 50–69%")
+                // The export re-frames the head to the compliant target, so once the guides
+                // sit on the crown and chin the result is in-range by construction — show
+                // that as reassurance, not a raw percentage that reads as a failure.
+                Label("Head will be sized correctly", systemImage: "checkmark.circle.fill")
+                    .font(.headline).foregroundStyle(.green)
+                Text("We'll crop so your head fills the required 50–69% of the photo.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             } else {
-                Text("Head height: not measured yet")
+                Text("Line up your head")
                     .font(.headline).foregroundStyle(.secondary)
-                Text("Place both lines to measure")
+                Text("Put the top line at the top of your head and the bottom line at your chin.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             Spacer()
@@ -71,7 +73,7 @@ struct AssistedCropView: View {
             Button {
                 onRecheck(min(crownY, chinY), max(crownY, chinY))
             } label: {
-                Text("Re-check").font(.headline).frame(maxWidth: .infinity).padding()
+                Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
             }
             .buttonStyle(.borderedProminent)
             .disabled(!hasAdjusted)

@@ -86,10 +86,8 @@ struct VisionComplianceEngine: ComplianceEngine {
             faceBoxHeightFraction: Double(face.boundingBox.height))
         results.append(RuleResult(
             id: "head.height", status: .assisted,
-            measured: headPct, unit: "%",
-            message: PassportRules.isHeadHeightCalibrated
-                ? "Head size — align the crown and chin guides to confirm."
-                : "Head size can't be measured automatically — align the crown and chin guides."))
+            measured: nil, unit: nil,
+            message: "Head size — we'll frame it correctly on the next step."))
 
         // Background — now measured on-device (person segmentation), not self-reported.
         let bg = BackgroundAnalyzer.analyze(image)
