@@ -5,20 +5,45 @@ import UIKit
 /// Screen 6 — export / paywall. Free watermarked preview; one-time purchase to export clean.
 /// Real StoreKit purchase is wired later; for now "unlock" is a placeholder that reveals the export.
 struct ExportView: View {
-    let image: CIImage?
-    /// True when `image` is the cropped passport export. False means the crop failed and
-    /// `image` is the untouched photo — we must never sell that as "correct size".
-    var isCropped: Bool = true
-    /// Short diagnostic shown when the crop failed, so a failure pinpoints its own cause.
-    var failureReason: String? = nil
+    /// The captured photo and the guide positions. The crop is performed HERE, in the view
+    /// that shows it — earlier it was computed a screen back and threaded through @State,
+    /// and an occasional mismatch let an uncropped photo reach this screen with no reason.
+    let source: CIImage?
+    var crownY: CGFloat = 0
+    var chinY: CGFloat = 0
     var onDone: () -> Void
     var onRetake: () -> Void = {}
 
     @StateObject private var store = Store()
     @State private var isPurchasing = false
     @State private var renderedImage: UIImage?
+    @State private var isCropped = false
+    @State private var failureReason: String?
+    @State private var preparing = true
 
     private var unlocked: Bool { store.purchased }
+
+    /// Crops the passport image, retrying a few times — createCGImage can fail transiently
+    /// under memory pressure right after analysis, and a retry clears it. Only after real
+    /// retries do we surface a failure.
+    private func prepare() {
+        guard let source else {
+            failureReason = "no photo to prepare"; isCropped = false; preparing = false; return
+        }
+        for attempt in 1...4 {
+            let r = ExportPipeline.make(from: source, crownY: crownY, chinY: chinY)
+            if let img = r.image {
+                renderedImage = Self.render(img)
+                isCropped = renderedImage != nil
+                failureReason = isCropped ? nil : "couldn't render the cropped image"
+                preparing = false
+                return
+            }
+            if attempt == 4 { failureReason = r.reason }
+        }
+        isCropped = false
+        preparing = false
+    }
 
     var body: some View {
         VStack(spacing: 18) {
@@ -26,7 +51,11 @@ struct ExportView: View {
                 .frame(maxHeight: 260)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            if isCropped {
+            if preparing {
+                ProgressView()
+                Text("Preparing your photo…")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else if isCropped {
                 Text("Ready to export")
                     .font(.title3.bold())
                 Text("Cropped to the correct square size for the online renewal upload.")
@@ -63,8 +92,8 @@ struct ExportView: View {
 
             Spacer()
 
-            if !isCropped {
-                EmptyView()   // no purchase for a photo we couldn't prepare
+            if preparing || !isCropped {
+                EmptyView()   // no purchase until we have a prepared photo
             } else if unlocked {
                 if let ui = renderedImage {
                     ShareLink(item: Image(uiImage: ui),
@@ -118,7 +147,7 @@ struct ExportView: View {
         .navigationTitle("Export")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            renderedImage = Self.render(image)
+            prepare()
             await store.load()
         }
     }
@@ -155,5 +184,5 @@ struct ExportView: View {
 }
 
 #Preview {
-    NavigationStack { ExportView(image: nil, onDone: {}) }
+    NavigationStack { ExportView(source: nil, onDone: {}) }
 }

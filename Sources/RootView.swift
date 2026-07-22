@@ -7,8 +7,8 @@ struct RootView: View {
     @State private var path = NavigationPath()
     @State private var docType: DocumentType = .usPassport
     @State private var capturedImage: CIImage?
-    @State private var exportImage: CIImage?
-    @State private var exportError: String?
+    @State private var cropCrownY: CGFloat = 0
+    @State private var cropChinY: CGFloat = 0
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
     @State private var analysisToken = 0
@@ -73,28 +73,19 @@ struct RootView: View {
                                          suggestedCrownY: report?.suggestedCrownY,
                                          suggestedChinY: report?.suggestedChinY,
                                          onRecheck: { crownY, chinY in
-                            // The guides are the whole point — build the real export from
-                            // them rather than handing back the untouched photo.
-                            if let source = capturedImage {
-                                let result = ExportPipeline.make(
-                                    from: source, crownY: crownY, chinY: chinY)
-                                exportImage = result.image
-                                exportError = result.reason
-                            } else {
-                                exportImage = nil
-                                exportError = "the photo was lost — please retake"
-                            }
+                            // Just remember the guides — ExportView performs the crop itself,
+                            // so the source image and guides can't get out of sync in transit.
+                            cropCrownY = crownY
+                            cropChinY = chinY
                             path.append(Route.export)
                         })
                     case .export:
-                        ExportView(image: exportImage ?? capturedImage,
-                                   isCropped: exportImage != nil,
-                                   failureReason: exportError,
+                        ExportView(source: capturedImage,
+                                   crownY: cropCrownY,
+                                   chinY: cropChinY,
                                    onDone: { path.append(Route.done) },
                                    onRetake: {
                                        capturedImage = nil
-                                       exportImage = nil
-                                       exportError = nil
                                        report = nil
                                        path = NavigationPath()
                                        path.append(Route.capture)
@@ -104,7 +95,6 @@ struct RootView: View {
                             // The privacy policy promises the photo is gone once you
                             // export or leave — actually drop it, don't just navigate.
                             capturedImage = nil
-                            exportImage = nil
                             report = nil
                             path = NavigationPath()
                         })
