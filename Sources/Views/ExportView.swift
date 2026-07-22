@@ -6,7 +6,11 @@ import UIKit
 /// Real StoreKit purchase is wired later; for now "unlock" is a placeholder that reveals the export.
 struct ExportView: View {
     let image: CIImage?
+    /// True when `image` is the cropped passport export. False means the crop failed and
+    /// `image` is the untouched photo — we must never sell that as "correct size".
+    var isCropped: Bool = true
     var onDone: () -> Void
+    var onRetake: () -> Void = {}
 
     @StateObject private var store = Store()
     @State private var isPurchasing = false
@@ -20,15 +24,30 @@ struct ExportView: View {
                 .frame(maxHeight: 260)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            Text("Ready to export")
-                .font(.title3.bold())
-            Text("Correct size for the online renewal upload.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if isCropped {
+                Text("Ready to export")
+                    .font(.title3.bold())
+                Text("Cropped to the correct square size for the online renewal upload.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("Couldn't prepare the photo")
+                    .font(.title3.bold())
+                Text("We couldn't crop this photo to passport size. Please retake it.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                Button("Retake photo", action: onRetake)
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 4)
+            }
 
             Spacer()
 
-            if unlocked {
+            if !isCropped {
+                EmptyView()   // no purchase for a photo we couldn't prepare
+            } else if unlocked {
                 if let ui = renderedImage {
                     ShareLink(item: Image(uiImage: ui),
                               preview: SharePreview("Passport photo", image: Image(uiImage: ui))) {

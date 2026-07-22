@@ -75,7 +75,15 @@ struct RootView: View {
                         })
                     case .export:
                         ExportView(image: exportImage ?? capturedImage,
-                                   onDone: { path.append(Route.done) })
+                                   isCropped: exportImage != nil,
+                                   onDone: { path.append(Route.done) },
+                                   onRetake: {
+                                       capturedImage = nil
+                                       exportImage = nil
+                                       report = nil
+                                       path = NavigationPath()
+                                       path.append(Route.capture)
+                                   })
                     case .done:
                         DoneView(onRestart: {
                             // The privacy policy promises the photo is gone once you

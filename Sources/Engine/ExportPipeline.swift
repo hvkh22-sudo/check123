@@ -1,5 +1,6 @@
 import CoreImage
 import CoreGraphics
+import UIKit
 
 /// Turns the captured photo plus the user's crown/chin guides into the square, correctly
 /// sized image the passport spec requires.
@@ -32,37 +33,39 @@ enum ExportPipeline {
     static func makePassportImage(from image: CIImage,
                                   crownY: CGFloat,
                                   chinY: CGFloat) -> CIImage? {
+        // Render to a concrete bitmap FIRST. Portrait photos carry EXIF orientation, and an
+        // oriented CIImage can report a non-zero-origin or lazily-evaluated extent that made
+        // `cropped(to:)` silently return an empty image — the export then fell back to the
+        // uncropped photo. A rendered CGImage is always finite, top-left origin, dimensions
+        // in pixels, so the crop math below cannot be defeated by orientation.
+        let ctx = CIContext(options: [.cacheIntermediates: false])
         let extent = image.extent
-        guard !extent.isInfinite, !extent.isEmpty,
-              extent.width > 0, extent.height > 0 else { return nil }
+        guard !extent.isInfinite, !extent.isNull, extent.width >= 1, extent.height >= 1,
+              let base = ctx.createCGImage(image, from: extent) else { return nil }
 
-        let top = min(crownY, chinY)
-        let bottom = max(crownY, chinY)
-        let headHeight = (bottom - top) * extent.height
-        guard headHeight > 1 else { return nil }
+        let w = CGFloat(base.width)
+        let h = CGFloat(base.height)
 
-        // The square that puts the head at the target fraction — never larger than the photo.
-        let side = min(headHeight / targetHeadFraction, min(extent.width, extent.height))
+        // CGImage space is top-down (y grows downward), which matches the guide fractions.
+        let top = max(0, min(crownY, chinY))
+        let bottom = min(1, max(crownY, chinY))
+        let headPx = (bottom - top) * h
+        guard headPx > 1 else { return nil }
 
-        // Guides are top-down; Core Image's origin is bottom-left.
-        let crownFromTop = top * extent.height
-        let cropTopFromTop = crownFromTop - side * marginAboveCrown
+        // Square that puts the head at the target fraction — never larger than the photo.
+        let side = min(headPx / targetHeadFraction, min(w, h))
 
-        var originX = extent.midX - side / 2
-        var originY = extent.maxY - cropTopFromTop - side
+        var originX = (w - side) / 2                     // centre horizontally
+        var originY = top * h - side * marginAboveCrown  // a little headroom above the crown
+        originX = min(max(originX, 0), w - side)
+        originY = min(max(originY, 0), h - side)
 
-        // Keep the crop inside the photo even when the head sits near an edge.
-        originX = min(max(originX, extent.minX), extent.maxX - side)
-        originY = min(max(originY, extent.minY), extent.maxY - side)
+        let cropRect = CGRect(x: originX.rounded(), y: originY.rounded(),
+                              width: side.rounded(), height: side.rounded())
+        guard let cropped = base.cropping(to: cropRect) else { return nil }
 
-        let cropRect = CGRect(x: originX, y: originY, width: side, height: side)
-        let cropped = image.cropped(to: cropRect)
-        guard !cropped.extent.isEmpty else { return nil }
-
-        let scale = outputSize / side
-        return cropped
-            .transformed(by: CGAffineTransform(translationX: -cropped.extent.minX,
-                                               y: -cropped.extent.minY))
+        let scale = outputSize / CGFloat(cropped.width)
+        return CIImage(cgImage: cropped)
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     }
 }
