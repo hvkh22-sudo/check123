@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var docType: DocumentType = .usPassport
     @State private var capturedImage: CIImage?
     @State private var exportImage: CIImage?
+    @State private var exportError: String?
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
 
@@ -25,8 +26,12 @@ struct RootView: View {
                                          onContinue: { path.append(Route.capture) })
                     case .capture:
                         CaptureView(onPhoto: { image in
-                            capturedImage = image
-                            Task { await runCheck(image) }
+                            // Downscale once at ingest: full-res photos make Vision analysis
+                            // look frozen and strain memory downstream. 2400px keeps the
+                            // 1200px export crisp.
+                            let prepared = image.downscaled()
+                            capturedImage = prepared
+                            Task { await runCheck(prepared) }
                         })
                     case .review:
                         // Never render nothing here. Before this had a bare `if let`, so a
@@ -68,14 +73,17 @@ struct RootView: View {
                             // The guides are the whole point — build the real export from
                             // them rather than handing back the untouched photo.
                             if let source = capturedImage {
-                                exportImage = ExportPipeline.makePassportImage(
+                                let result = ExportPipeline.make(
                                     from: source, crownY: crownY, chinY: chinY)
+                                exportImage = result.image
+                                exportError = result.reason
                             }
                             path.append(Route.export)
                         })
                     case .export:
                         ExportView(image: exportImage ?? capturedImage,
                                    isCropped: exportImage != nil,
+                                   failureReason: exportError,
                                    onDone: { path.append(Route.done) },
                                    onRetake: {
                                        capturedImage = nil

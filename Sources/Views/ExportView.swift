@@ -9,6 +9,8 @@ struct ExportView: View {
     /// True when `image` is the cropped passport export. False means the crop failed and
     /// `image` is the untouched photo — we must never sell that as "correct size".
     var isCropped: Bool = true
+    /// Short diagnostic shown when the crop failed, so a failure pinpoints its own cause.
+    var failureReason: String? = nil
     var onDone: () -> Void
     var onRetake: () -> Void = {}
 
@@ -38,6 +40,14 @@ struct ExportView: View {
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
+                if let failureReason {
+                    Text(failureReason)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .textSelection(.enabled)
+                }
                 Button("Retake photo", action: onRetake)
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 4)

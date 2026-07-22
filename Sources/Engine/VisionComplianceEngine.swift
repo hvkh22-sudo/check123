@@ -67,11 +67,12 @@ struct VisionComplianceEngine: ComplianceEngine {
 
         // Sharpness (face capture quality)
         if let q = qualityReq.results?.first?.faceCaptureQuality {
+            let sharp = Double(q) >= PassportRules.sharpnessMin
             results.append(RuleResult(
                 id: "img.sharp",
-                status: q >= 0.5 ? .verifiedPass : .verifiedFail,
+                status: sharp ? .verifiedPass : .verifiedFail,
                 measured: Double(q) * 100, unit: "%",
-                message: q >= 0.5 ? "Photo is sharp." : "Looks blurry or low quality — retake."))
+                message: sharp ? "Photo is sharp." : "Looks blurry or low quality — retake."))
         }
 
         // Head height — assisted. Vision has no crown landmark, so this is an estimate

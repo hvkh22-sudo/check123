@@ -21,6 +21,19 @@ extension CIImage {
     func uprighted(from uiOrientation: UIImage.Orientation) -> CIImage {
         oriented(CGImagePropertyOrientation(uiOrientation))
     }
+
+    /// Scales the image down so its longest side is at most `maxDimension`. Full-resolution
+    /// phone photos (12–48MP) make Vision analysis take many seconds — long enough to look
+    /// frozen — and cost memory on the crop/export screens. The export target is 1200px, so
+    /// anything above ~2400px is wasted work.
+    func downscaled(maxDimension: CGFloat = 2400) -> CIImage {
+        let e = extent
+        guard !e.isInfinite, !e.isNull, e.width > 0, e.height > 0 else { return self }
+        let longest = max(e.width, e.height)
+        guard longest > maxDimension else { return self }
+        let scale = maxDimension / longest
+        return transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    }
 }
 
 extension CGImagePropertyOrientation {

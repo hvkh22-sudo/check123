@@ -25,6 +25,11 @@ enum PassportRules {
     // Eyes-open EAR threshold (tune)
     static let earThreshold = 0.20
 
+    /// Minimum Vision faceCaptureQuality to count as sharp (tune). 0.5 was too strict —
+    /// ordinary in-focus phone selfies score ~0.4–0.55, so real photos were falsely
+    /// rejected as "blurry"; a genuinely blurry frame scores well below this.
+    static let sharpnessMin = 0.35
+
     // Background near-white, normalized (tune) — tolerant for off-white
     static let bgLuminanceMin = 0.88
     static let bgSaturationMax = 0.12
