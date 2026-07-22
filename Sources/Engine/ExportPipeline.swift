@@ -13,6 +13,11 @@ import UIKit
 /// replacement, no retouching. The US State Department rejects AI-edited photos.
 enum ExportPipeline {
 
+    /// One shared Core Image context. Creating a fresh CIContext per call is expensive and,
+    /// right after the heavy background segmentation, occasionally failed under memory
+    /// pressure — which is what made the first crop attempt intermittently fail.
+    static let sharedContext = CIContext(options: [.cacheIntermediates: false])
+
     /// Output edge length in pixels. Inside `PassportRules.pixelMin...pixelMax`.
     static let outputSize: CGFloat = 1200
 
@@ -52,8 +57,11 @@ enum ExportPipeline {
 
         // Render to a concrete bitmap FIRST — an oriented CIImage can report a lazily
         // evaluated extent that defeated cropping. A CGImage is finite, top-left origin.
-        let ctx = CIContext(options: [.cacheIntermediates: false])
-        guard let base = ctx.createCGImage(image, from: extent) else {
+        // One transient retry: createCGImage can fail once under memory pressure and
+        // succeed immediately after.
+        var base = sharedContext.createCGImage(image, from: extent)
+        if base == nil { base = sharedContext.createCGImage(image, from: extent) }
+        guard let base else {
             return (nil, "render failed at \(Int(extent.width))×\(Int(extent.height))")
         }
 

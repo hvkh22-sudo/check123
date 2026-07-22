@@ -94,6 +94,7 @@ struct RootView: View {
                                    onRetake: {
                                        capturedImage = nil
                                        exportImage = nil
+                                       exportError = nil
                                        report = nil
                                        path = NavigationPath()
                                        path.append(Route.capture)

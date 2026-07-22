@@ -59,10 +59,9 @@ enum BackgroundAnalyzer {
     /// Samples a grid of points, keeps those the mask marks as background, and returns
     /// mean luminance, mean saturation, and luminance spread (uniformity).
     private static func sampleBackground(image: CIImage, mask: CVPixelBuffer) -> Stats? {
-        let ctx = CIContext(options: [.cacheIntermediates: false])
         let extent = image.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
-              let cg = ctx.createCGImage(image, from: extent),
+              let cg = ExportPipeline.sharedContext.createCGImage(image, from: extent),
               let data = cg.dataProvider?.data,
               let ptr = CFDataGetBytePtr(data) else { return nil }
 
