@@ -86,9 +86,15 @@ struct VisionComplianceEngine: ComplianceEngine {
                 ? "Head size — align the crown and chin guides to confirm."
                 : "Head size can't be measured automatically — align the crown and chin guides."))
 
-        // Not machine-verifiable → honest user-confirm items
-        results.append(RuleResult(id: "bg.plain", status: .confirm, measured: nil, unit: nil,
-                                  message: "Is the background a plain, light, shadow-free wall?"))
+        // Background — now measured on-device (person segmentation), not self-reported.
+        let bg = BackgroundAnalyzer.analyze(image)
+        results.append(RuleResult(
+            id: "bg.plain",
+            status: bg.luminance == nil ? .confirm : (bg.ok ? .verifiedPass : .verifiedFail),
+            measured: bg.luminance.map { $0 * 100 }, unit: bg.luminance == nil ? nil : "%",
+            message: bg.message))
+
+        // Still honest user-confirm items (not machine-verifiable)
         results.append(RuleResult(id: "face.glasses", status: .confirm, measured: nil, unit: nil,
                                   message: "Confirm your glasses are off."))
         results.append(RuleResult(id: "meta.unedited", status: .confirm, measured: nil, unit: nil,

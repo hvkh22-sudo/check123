@@ -14,6 +14,10 @@ struct ComplianceReviewView: View {
 
     var body: some View {
         List {
+            Section { verdictBanner }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+
             if !failed.isEmpty {
                 Section("Fix these") {
                     ForEach(failed) { ruleRow($0, icon: "xmark.circle.fill", color: .red) }
@@ -53,6 +57,30 @@ struct ComplianceReviewView: View {
             }
             .padding()
         }
+    }
+
+    /// One-glance summary at the top: how many automatic checks passed, and what's blocking.
+    private var verdictBanner: some View {
+        let passed = verified.count
+        let total = verified.count + failed.count
+        let blocking = failed.count
+        return VStack(spacing: 8) {
+            Image(systemName: blocking == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(blocking == 0 ? .green : .orange)
+            Text(blocking == 0 ? "Passed every automatic check"
+                               : "\(blocking) \(blocking == 1 ? "item needs" : "items need") fixing")
+                .font(.title3.bold())
+                .multilineTextAlignment(.center)
+            Text(blocking == 0
+                 ? "\(passed) of \(total) on-device checks passed. Confirm the manual items below, then set head size."
+                 : "Fix the item\(blocking == 1 ? "" : "s") under “Fix these”, then retake — checks are free.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
     }
 
     private func ruleRow(_ r: RuleResult, icon: String, color: Color) -> some View {

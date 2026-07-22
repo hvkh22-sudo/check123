@@ -31,8 +31,11 @@ enum PassportRules {
     static let sharpnessMin = 0.35
 
     // Background near-white, normalized (tune) — tolerant for off-white
-    static let bgLuminanceMin = 0.88
-    static let bgSaturationMax = 0.12
+    static let bgLuminanceMin = 0.80
+    static let bgSaturationMax = 0.15
+    /// Max luminance spread across the background before it reads as non-uniform (shadows,
+    /// objects). Tune against real photos.
+    static let bgUniformityMax = 0.14
 
     /// Whether a measured head-height percentage is inside the compliant green band.
     static func headHeightInBand(_ pct: Double) -> Bool {
