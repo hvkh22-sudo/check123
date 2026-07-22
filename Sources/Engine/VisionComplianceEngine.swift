@@ -9,7 +9,12 @@ import CoreImage
 struct VisionComplianceEngine: ComplianceEngine {
     let engineVersion = "0.2-vision"
 
-    func analyze(_ image: CIImage) async -> ComplianceReport {
+    func analyze(_ fullImage: CIImage) async -> ComplianceReport {
+        // Analyse a small copy. Face/background fractions are resolution-independent, but
+        // person segmentation on a full 2400px photo took several seconds and made the
+        // "Checking your photo" screen look frozen. 1024px is plenty for detection.
+        let image = fullImage.downscaled(maxDimension: 1024)
+
         let landmarksReq = VNDetectFaceLandmarksRequest()
         let qualityReq = VNDetectFaceCaptureQualityRequest()
 
@@ -100,7 +105,17 @@ struct VisionComplianceEngine: ComplianceEngine {
         results.append(RuleResult(id: "meta.unedited", status: .confirm, measured: nil, unit: nil,
                                   message: "No filters, beauty, or AI edits (they get rejected)."))
 
-        return report(results)
+        // Suggested guide positions so the Adjust screen starts placed, not blank. Vision's
+        // box runs chin→hairline; the crown sits above it by ~35% of the box height.
+        // Coordinates are bottom-left; convert to top-down fractions.
+        let box = face.boundingBox
+        let chinY = (1 - Double(box.minY)).clamped01()
+        let crownY = (1 - Double(box.maxY) - 0.35 * Double(box.height)).clamped01()
+
+        var out = report(results)
+        out.suggestedChinY = chinY
+        out.suggestedCrownY = crownY
+        return out
     }
 
     // MARK: - helpers
@@ -108,6 +123,8 @@ struct VisionComplianceEngine: ComplianceEngine {
     private func report(_ r: [RuleResult]) -> ComplianceReport {
         ComplianceReport(results: r, engineVersion: engineVersion)
     }
+
+    // (clamp helper defined at file scope below)
 
     private func degrees(_ radians: NSNumber?) -> Double {
         guard let r = radians?.doubleValue else { return 0 }
@@ -123,4 +140,9 @@ struct VisionComplianceEngine: ComplianceEngine {
               let minY = ys.min(), let maxY = ys.max(), maxX - minX > 0 else { return nil }
         return (maxY - minY) / (maxX - minX)
     }
+}
+
+private extension Double {
+    /// Clamps to the 0...1 fraction range used for guide positions.
+    func clamped01() -> Double { Swift.min(Swift.max(self, 0), 1) }
 }

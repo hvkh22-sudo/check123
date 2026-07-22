@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var exportError: String?
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
+    @State private var analysisToken = 0
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
@@ -69,6 +70,8 @@ struct RootView: View {
                         }
                     case .adjust:
                         AssistedCropView(image: capturedImage,
+                                         suggestedCrownY: report?.suggestedCrownY,
+                                         suggestedChinY: report?.suggestedChinY,
                                          onRecheck: { crownY, chinY in
                             // The guides are the whole point — build the real export from
                             // them rather than handing back the untouched photo.
@@ -77,6 +80,9 @@ struct RootView: View {
                                     from: source, crownY: crownY, chinY: chinY)
                                 exportImage = result.image
                                 exportError = result.reason
+                            } else {
+                                exportImage = nil
+                                exportError = "the photo was lost — please retake"
                             }
                             path.append(Route.export)
                         })
@@ -112,7 +118,19 @@ struct RootView: View {
         report = nil
         isAnalyzing = true
         path.append(Route.review)
-        report = await engine.analyze(image)
+
+        // Tag this run. If the user backs out and retakes, a slow earlier analysis must not
+        // land on the new attempt — that stale result was corrupting state and causing the
+        // intermittent "Couldn't prepare" with no reason.
+        analysisToken &+= 1
+        let token = analysisToken
+
+        // Run Vision off the main actor so the UI stays responsive.
+        let engine = self.engine
+        let result = await Task.detached { await engine.analyze(image) }.value
+
+        guard token == analysisToken else { return }   // a newer capture superseded this one
+        report = result
         isAnalyzing = false
     }
 }

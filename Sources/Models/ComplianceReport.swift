@@ -32,6 +32,12 @@ struct ComplianceReport: Codable, Equatable {
     var results: [RuleResult]
     var engineVersion: String
 
+    /// Suggested crown/chin guide positions from the detected face, as top-down fractions
+    /// (0 = top of photo, 1 = bottom). The Adjust screen starts the guides here so the user
+    /// confirms rather than places them from scratch. Nil when no face was detected.
+    var suggestedCrownY: Double?
+    var suggestedChinY: Double?
+
     /// fail if any verified failure; else needsAttention if any assisted/confirm; else pass.
     var overall: ReportOutcome {
         if results.contains(where: { $0.status == .verifiedFail }) { return .fail }

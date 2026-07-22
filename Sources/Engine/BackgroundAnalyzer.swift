@@ -18,7 +18,7 @@ enum BackgroundAnalyzer {
 
     static func analyze(_ image: CIImage) -> Result {
         let req = VNGeneratePersonSegmentationRequest()
-        req.qualityLevel = .balanced
+        req.qualityLevel = .fast   // .balanced was slow enough to look frozen
         req.outputPixelFormat = kCVPixelFormatType_OneComponent8
 
         let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [:])

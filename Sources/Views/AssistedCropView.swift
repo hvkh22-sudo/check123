@@ -11,19 +11,26 @@ import UIKit
 /// amount that varies with the photo. `imageRect(in:)` is what keeps the two in agreement.
 struct AssistedCropView: View {
     let image: CIImage?
+    /// Optional face-derived starting positions (top-down fractions). When present the
+    /// guides open already placed on the head, so the user confirms instead of placing
+    /// from scratch — the step people found confusing.
+    var suggestedCrownY: Double? = nil
+    var suggestedChinY: Double? = nil
     /// Reports crown and chin as fractions of image height, measured top-down.
     var onRecheck: (CGFloat, CGFloat) -> Void
 
     @State private var crownY: CGFloat = 0.18
     @State private var chinY: CGFloat = 0.78
-    /// Nothing is measured until the user actually places a guide, so the screen must not
-    /// open showing a compliant-looking number for a measurement that hasn't happened.
+    /// Nothing is measured until the guides are placed. When we have a face-based suggestion
+    /// they count as placed immediately; otherwise the user must drag first.
     @State private var hasAdjusted = false
     @State private var rendered: UIImage?
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Drag the lines to the top of your head and your chin")
+            Text(hasAdjusted
+                 ? "We placed the lines for you — nudge them if they're off"
+                 : "Drag the lines to the top of your head and your chin")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -72,7 +79,15 @@ struct AssistedCropView: View {
         .padding()
         .navigationTitle("Adjust")
         .navigationBarTitleDisplayMode(.inline)
-        .task { rendered = Self.render(image) }
+        .task {
+            rendered = Self.render(image)
+            // Start on the detected head position when we have one.
+            if let c = suggestedCrownY, let ch = suggestedChinY, ch > c {
+                crownY = CGFloat(c)
+                chinY = CGFloat(ch)
+                hasAdjusted = true
+            }
+        }
     }
 
     private var headHeightPct: Double { Double(abs(chinY - crownY)) * 100 }
