@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         RootView()
+            .tint(Brand.primary)   // one accent colour across every screen
     }
 }
 

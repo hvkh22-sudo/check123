@@ -18,39 +18,48 @@ struct DocumentTypeView: View {
         VStack(spacing: 20) {
             Text("What are you making?")
                 .font(.title2.bold())
-                .padding(.top)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
 
             VStack(spacing: 0) {
                 ForEach(DocumentType.allCases) { type in
                     Button {
                         if type.available { selected = type }
                     } label: {
-                        HStack {
+                        HStack(spacing: 12) {
                             Image(systemName: selected == type ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(type.available ? Color.accentColor : Color.secondary)
+                                .font(.system(size: 20))
+                                .foregroundStyle(selected == type ? Brand.primary
+                                                 : (type.available ? Color.secondary : Color.secondary.opacity(0.5)))
                             Text(type.rawValue)
                                 .foregroundStyle(type.available ? Color.primary : Color.secondary)
                             Spacer()
                             if !type.available {
-                                Text("soon").font(.caption).foregroundStyle(.secondary)
+                                Text("soon")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(Color.secondary.opacity(0.12), in: Capsule())
                             }
                         }
-                        .padding()
+                        .padding(.horizontal, 16).padding(.vertical, 15)
                     }
                     .disabled(!type.available)
-                    if type != DocumentType.allCases.last { Divider() }
+                    if type != DocumentType.allCases.last {
+                        Divider().padding(.leading, 48)
+                    }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.12)))
+            .background(Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             Spacer()
 
-            Button(action: onContinue) {
-                Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
-            }
-            .buttonStyle(.borderedProminent)
+            Button("Continue", action: onContinue)
+                .buttonStyle(PrimaryButtonStyle())
         }
-        .padding()
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
     }
 }
 
