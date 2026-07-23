@@ -63,10 +63,15 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertEqual(result.extent.height, ExportPipeline.outputSize, accuracy: 1)
     }
 
-    func testDegenerateGuidesAreRejectedRatherThanProducingGarbage() {
+    func testDegenerateGuidesFallBackToACenteredSquareRatherThanFailing() throws {
+        // Guides at the same position can't measure a head, but the export must never
+        // dead-end — it falls back to a centered square of the correct output size.
         let source = sourceImage(width: 2000, height: 2000)
-        XCTAssertNil(ExportPipeline.makePassportImage(from: source, crownY: 0.4, chinY: 0.4),
-                     "no measurable head height must not yield an image")
+        let result = try XCTUnwrap(
+            ExportPipeline.makePassportImage(from: source, crownY: 0.4, chinY: 0.4),
+            "degenerate guides must still yield a valid fallback image, not nil")
+        XCTAssertEqual(result.extent.width, ExportPipeline.outputSize, accuracy: 1)
+        XCTAssertEqual(result.extent.height, ExportPipeline.outputSize, accuracy: 1)
     }
 
     func testInfiniteExtentIsRejected() {
