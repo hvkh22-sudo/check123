@@ -120,20 +120,43 @@ struct RootView: View {
     private static func analyzeWithTimeout(_ engine: ComplianceEngine,
                                            _ image: CIImage,
                                            seconds: Double) async -> ComplianceReport {
-        await withTaskGroup(of: ComplianceReport?.self) { group in
-            group.addTask { await engine.analyze(image) }
-            group.addTask {
+        // withTaskGroup implicitly awaits ALL children before returning, and Vision's
+        // synchronous perform() cannot be cancelled — so a stalled analysis would still
+        // hang the screen. Instead resolve from whichever finishes first via a
+        // resume-once box; the losing task keeps running but its result is discarded.
+        let box = ResolveOnceBox()
+        return await withCheckedContinuation { cont in
+            box.attach(cont)
+            Task.detached { box.resolve(await engine.analyze(image)) }
+            Task.detached {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+                box.resolve(ComplianceReport(
+                    results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
+                                         measured: nil, unit: nil,
+                                         message: "Checking took too long — please retake in better light.")],
+                    engineVersion: "timeout"))
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? ComplianceReport(
-                results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
-                                     measured: nil, unit: nil,
-                                     message: "Checking took too long — please retake in better light.")],
-                engineVersion: "timeout")
         }
+    }
+}
+
+/// Delivers exactly one result to a continuation, whichever racing task resolves first.
+private final class ResolveOnceBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    private var cont: CheckedContinuation<ComplianceReport, Never>?
+
+    func attach(_ c: CheckedContinuation<ComplianceReport, Never>) {
+        lock.lock(); defer { lock.unlock() }
+        cont = c
+    }
+
+    func resolve(_ report: ComplianceReport) {
+        lock.lock(); defer { lock.unlock() }
+        guard !done, let c = cont else { return }
+        done = true
+        cont = nil
+        c.resume(returning: report)
     }
 }
 

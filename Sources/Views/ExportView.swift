@@ -23,25 +23,26 @@ struct ExportView: View {
 
     private var unlocked: Bool { store.purchased }
 
-    /// Crops the passport image, retrying a few times — createCGImage can fail transiently
-    /// under memory pressure right after analysis, and a retry clears it. Only after real
-    /// retries do we surface a failure.
-    private func prepare() {
+    /// Crops the passport image off the main thread (the render is heavy GPU→CPU work),
+    /// retrying a couple of times — createCGImage can fail transiently under memory pressure
+    /// right after analysis. Only after real retries do we surface a failure.
+    private func prepare() async {
         guard let source else {
             failureReason = "no photo to prepare"; isCropped = false; preparing = false; return
         }
-        for attempt in 1...4 {
-            let r = ExportPipeline.make(from: source, crownY: crownY, chinY: chinY)
-            if let img = r.image {
-                renderedImage = Self.render(img)
-                isCropped = renderedImage != nil
-                failureReason = isCropped ? nil : "couldn't render the cropped image"
-                preparing = false
-                return
+        let cy = crownY, chy = chinY
+        let outcome: (image: UIImage?, reason: String?) = await Task.detached {
+            for attempt in 1...3 {
+                let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy)
+                if let img = r.image { return (Self.render(img), nil) }
+                if attempt == 3 { return (nil, r.reason) }
             }
-            if attempt == 4 { failureReason = r.reason }
-        }
-        isCropped = false
+            return (nil, "couldn't prepare the photo")
+        }.value
+
+        renderedImage = outcome.image
+        isCropped = outcome.image != nil
+        failureReason = isCropped ? nil : outcome.reason
         preparing = false
     }
 
@@ -147,7 +148,7 @@ struct ExportView: View {
         .navigationTitle("Export")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            prepare()
+            await prepare()
             await store.load()
         }
     }
