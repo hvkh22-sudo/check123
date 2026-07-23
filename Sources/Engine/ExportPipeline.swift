@@ -18,6 +18,16 @@ enum ExportPipeline {
     /// pressure — which is what made the first crop attempt intermittently fail.
     static let sharedContext = CIContext(options: [.cacheIntermediates: false])
 
+    /// Renders a CIImage to a UIImage via the shared context, with one transient retry.
+    /// Both the crop preview and the adjust preview go through this, so a memory-pressure
+    /// createCGImage stall is retried in one place rather than blanking a screen.
+    static func renderUIImage(_ image: CIImage?) -> UIImage? {
+        guard let image, !image.extent.isInfinite, !image.extent.isEmpty else { return nil }
+        if let cg = sharedContext.createCGImage(image, from: image.extent) { return UIImage(cgImage: cg) }
+        if let cg = sharedContext.createCGImage(image, from: image.extent) { return UIImage(cgImage: cg) }
+        return nil
+    }
+
     /// Output edge length in pixels. Inside `PassportRules.pixelMin...pixelMax`.
     static let outputSize: CGFloat = 1200
 

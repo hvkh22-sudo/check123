@@ -88,8 +88,9 @@ struct ComplianceReviewView: View {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(r.message)
-                if let m = r.measured, let u = r.unit {
-                    Text("\(Int(m))\(u)").font(.caption).foregroundStyle(.secondary)
+                if let m = r.measured, let u = r.unit, m.isFinite {
+                    // %.0f, not Int(m): Int(NaN/Inf) is a hard runtime trap.
+                    Text("\(String(format: "%.0f", m))\(u)").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

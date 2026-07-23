@@ -125,7 +125,9 @@ struct VisionComplianceEngine: ComplianceEngine {
     // (clamp helper defined at file scope below)
 
     private func degrees(_ radians: NSNumber?) -> Double {
-        guard let r = radians?.doubleValue else { return 0 }
+        // Vision can return a present-but-NaN roll/yaw on extreme/degenerate detections.
+        // A NaN reaching Int(...) later is a hard runtime trap, so clamp to 0 here.
+        guard let r = radians?.doubleValue, r.isFinite else { return 0 }
         return r * 180.0 / Double.pi
     }
 

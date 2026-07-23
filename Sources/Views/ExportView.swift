@@ -177,10 +177,7 @@ struct ExportView: View {
     /// Rendered once into state. As a computed property this ran on every body pass —
     /// three full-resolution bitmaps per render, which can exhaust memory on large photos.
     private static func render(_ image: CIImage?) -> UIImage? {
-        guard let image, !image.extent.isInfinite, !image.extent.isEmpty else { return nil }
-        let context = CIContext(options: [.cacheIntermediates: false])
-        guard let cg = context.createCGImage(image, from: image.extent) else { return nil }
-        return UIImage(cgImage: cg)
+        ExportPipeline.renderUIImage(image)
     }
 }
 

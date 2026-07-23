@@ -148,10 +148,7 @@ struct AssistedCropView: View {
     /// Rendered once — as a computed property this rebuilt a full-resolution bitmap on
     /// every drag frame, which is exactly when the screen needs to stay responsive.
     private static func render(_ image: CIImage?) -> UIImage? {
-        guard let image, !image.extent.isInfinite, !image.extent.isEmpty else { return nil }
-        let ctx = CIContext(options: [.cacheIntermediates: false])
-        guard let cg = ctx.createCGImage(image, from: image.extent) else { return nil }
-        return UIImage(cgImage: cg)
+        ExportPipeline.renderUIImage(image)
     }
 }
 
