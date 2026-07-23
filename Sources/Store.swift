@@ -14,6 +14,24 @@ final class Store: ObservableObject {
     @Published var purchased = false
     @Published var errorMessage: String?
 
+    private var updatesListener: Task<Void, Never>?
+
+    init() {
+        // StoreKit 2 requires a long-lived listener for transactions that arrive outside a
+        // purchase() call: Ask-to-Buy approvals, pending purchases that later complete, or a
+        // purchase made on another device. Without it, a charged customer stays locked.
+        updatesListener = Task { [weak self] in
+            for await result in Transaction.updates {
+                if case .verified(let transaction) = result {
+                    await transaction.finish()
+                    await self?.refreshEntitlements()
+                }
+            }
+        }
+    }
+
+    deinit { updatesListener?.cancel() }
+
     /// True only for builds that cannot reach real customers.
     ///
     /// App Store builds ship a receipt named `receipt`; TestFlight builds ship

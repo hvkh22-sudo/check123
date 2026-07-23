@@ -104,7 +104,11 @@ final class LiveFaceCoach: NSObject, ObservableObject {
 
     // MARK: - Capture
 
+    private var captureInFlight = false
+
     func capturePhoto(completion: @escaping (CIImage) -> Void) {
+        guard !captureInFlight else { return }   // ignore double-taps on the shutter
+        captureInFlight = true
         photoHandler = completion
         let settings = AVCapturePhotoSettings()
         photoOutput.capturePhoto(with: settings, delegate: self)
@@ -186,13 +190,22 @@ extension LiveFaceCoach: AVCapturePhotoCaptureDelegate {
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput,
                                  didFinishProcessingPhoto photo: AVCapturePhoto,
                                  error: Error?) {
-        guard let data = photo.fileDataRepresentation(),
-              let image = CIImage(data: data) else { return }
+        // On any failure (capture error, unreadable data) clear the in-flight state and
+        // surface a hint, so the shutter never silently no-ops and leaves the user stuck.
+        let image: CIImage? = (error == nil)
+            ? photo.fileDataRepresentation().flatMap { CIImage(data: $0) }
+            : nil
         Task { @MainActor in
-            // uprighted() bakes in EXIF orientation, so everything downstream — Vision,
-            // the crop, the export — sees the photo the way the user saw it.
-            self.photoHandler?(image.uprighted())
-            self.photoHandler = nil
+            self.captureInFlight = false
+            if let image {
+                // uprighted() bakes in EXIF orientation, so everything downstream —
+                // Vision, the crop, the export — sees the photo the way the user saw it.
+                self.photoHandler?(image.uprighted())
+                self.photoHandler = nil
+            } else {
+                self.photoHandler = nil
+                self.hint = "That shot didn't save — try again"
+            }
         }
     }
 }
