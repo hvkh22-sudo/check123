@@ -113,7 +113,7 @@ struct RootView: View {
         // Always finish within a bounded time. Vision (especially person segmentation) can
         // occasionally stall on a frame; without a timeout that left "Checking your photo…"
         // on screen forever. Racing a timeout guarantees the spinner always resolves.
-        report = await Self.analyzeWithTimeout(engine, image, seconds: 8)
+        report = await Self.analyzeWithTimeout(engine, image, seconds: 6)
         isAnalyzing = false
     }
 

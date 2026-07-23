@@ -11,9 +11,9 @@ struct VisionComplianceEngine: ComplianceEngine {
 
     func analyze(_ fullImage: CIImage) async -> ComplianceReport {
         // Analyse a small copy. Face/background fractions are resolution-independent, but
-        // person segmentation on a full 2400px photo took several seconds and made the
-        // "Checking your photo" screen look frozen. 1024px is plenty for detection.
-        let image = fullImage.downscaled(maxDimension: 1024)
+        // person segmentation is heavy — on a large photo it made the "Checking your photo"
+        // screen look frozen. 768px keeps detection accurate while cutting analysis time.
+        let image = fullImage.downscaled(maxDimension: 768)
 
         let landmarksReq = VNDetectFaceLandmarksRequest()
         let qualityReq = VNDetectFaceCaptureQualityRequest()

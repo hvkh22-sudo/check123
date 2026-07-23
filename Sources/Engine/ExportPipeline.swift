@@ -31,9 +31,10 @@ enum ExportPipeline {
     /// Output edge length in pixels. Inside `PassportRules.pixelMin...pixelMax`.
     static let outputSize: CGFloat = 1200
 
-    /// Where in the compliant 50–69% band we aim. The middle gives the most tolerance
-    /// to a slightly imprecise guide placement in either direction.
-    static let targetHeadFraction: CGFloat = 0.60
+    /// Where in the compliant 50–69% band we aim. Sits in the upper-middle so the head
+    /// reads as prominent (closer to what people expect from a passport photo) while
+    /// keeping margin below 69% for imprecise guide placement.
+    static let targetHeadFraction: CGFloat = 0.64
 
     /// Headroom above the crown, as a fraction of the square. The remainder falls below
     /// the chin, which is what gives passport framing its shoulders-visible look.
