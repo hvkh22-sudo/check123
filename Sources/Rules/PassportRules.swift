@@ -25,17 +25,19 @@ enum PassportRules {
     // Eyes-open EAR threshold (tune)
     static let earThreshold = 0.20
 
-    /// Minimum Vision faceCaptureQuality to count as sharp (tune). 0.5 was too strict —
-    /// ordinary in-focus phone selfies score ~0.4–0.55, so real photos were falsely
-    /// rejected as "blurry"; a genuinely blurry frame scores well below this.
-    static let sharpnessMin = 0.35
+    /// Minimum Vision faceCaptureQuality to count as sharp (tune). Loosened from 0.5 → 0.35
+    /// → 0.28: ordinary in-focus indoor selfies score ~0.3–0.55, so a higher bar falsely
+    /// rejected good photos as "blurry/dark"; genuine motion blur scores well below 0.28.
+    static let sharpnessMin = 0.28
 
-    // Background near-white, normalized (tune) — tolerant for off-white
-    static let bgLuminanceMin = 0.80
-    static let bgSaturationMax = 0.15
+    // Background near-white, normalized (tune) — tolerant for off-white walls and indoor
+    // light. Loosened after real photos on a light (not pure-white) wall read as false
+    // failures; a genuinely dark or coloured background still fails.
+    static let bgLuminanceMin = 0.68
+    static let bgSaturationMax = 0.18
     /// Max luminance spread across the background before it reads as non-uniform (shadows,
-    /// objects). Tune against real photos.
-    static let bgUniformityMax = 0.14
+    /// objects). Loosened for tiled/textured walls with visible grout lines.
+    static let bgUniformityMax = 0.20
 
     /// Whether a measured head-height percentage is inside the compliant green band.
     static func headHeightInBand(_ pct: Double) -> Bool {

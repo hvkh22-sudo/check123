@@ -7,15 +7,19 @@ struct RootView: View {
     @State private var path = NavigationPath()
     @State private var docType: DocumentType = .usPassport
     @State private var capturedImage: CIImage?
-    @State private var cropCrownY: CGFloat = 0
-    @State private var cropChinY: CGFloat = 0
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
     @State private var analysisToken = 0
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
-    enum Route: Hashable { case documentType, capture, review, adjust, export, done }
+    enum Route: Hashable {
+        case documentType, capture, review, adjust, done
+        // The guide positions travel WITH the navigation value, not through separate @State,
+        // so the crop can never run with stale (0,0) guides — the "head span too small (0px)"
+        // failure. Rounded to keep the value stably Hashable.
+        case export(crownY: Double, chinY: Double)
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -73,16 +77,13 @@ struct RootView: View {
                                          suggestedCrownY: report?.suggestedCrownY,
                                          suggestedChinY: report?.suggestedChinY,
                                          onRecheck: { crownY, chinY in
-                            // Just remember the guides — ExportView performs the crop itself,
-                            // so the source image and guides can't get out of sync in transit.
-                            cropCrownY = crownY
-                            cropChinY = chinY
-                            path.append(Route.export)
+                            // Carry the guides in the navigation value itself.
+                            path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY)))
                         })
-                    case .export:
+                    case .export(let cy, let chy):
                         ExportView(source: capturedImage,
-                                   crownY: cropCrownY,
-                                   chinY: cropChinY,
+                                   crownY: CGFloat(cy),
+                                   chinY: CGFloat(chy),
                                    onDone: { path.append(Route.done) },
                                    onRetake: {
                                        capturedImage = nil
