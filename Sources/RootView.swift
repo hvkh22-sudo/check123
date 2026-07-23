@@ -9,7 +9,6 @@ struct RootView: View {
     @State private var capturedImage: CIImage?
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
-    @State private var analysisToken = 0
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
@@ -111,19 +110,30 @@ struct RootView: View {
         isAnalyzing = true
         path.append(Route.review)
 
-        // Tag this run. If the user backs out and retakes, a slow earlier analysis must not
-        // land on the new attempt — that stale result was corrupting state and causing the
-        // intermittent "Couldn't prepare" with no reason.
-        analysisToken &+= 1
-        let token = analysisToken
-
-        // Run Vision off the main actor so the UI stays responsive.
-        let engine = self.engine
-        let result = await Task.detached { await engine.analyze(image) }.value
-
-        guard token == analysisToken else { return }   // a newer capture superseded this one
-        report = result
+        // Always finish within a bounded time. Vision (especially person segmentation) can
+        // occasionally stall on a frame; without a timeout that left "Checking your photo…"
+        // on screen forever. Racing a timeout guarantees the spinner always resolves.
+        report = await Self.analyzeWithTimeout(engine, image, seconds: 8)
         isAnalyzing = false
+    }
+
+    private static func analyzeWithTimeout(_ engine: ComplianceEngine,
+                                           _ image: CIImage,
+                                           seconds: Double) async -> ComplianceReport {
+        await withTaskGroup(of: ComplianceReport?.self) { group in
+            group.addTask { await engine.analyze(image) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? ComplianceReport(
+                results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
+                                     measured: nil, unit: nil,
+                                     message: "Checking took too long — please retake in better light.")],
+                engineVersion: "timeout")
+        }
     }
 }
 

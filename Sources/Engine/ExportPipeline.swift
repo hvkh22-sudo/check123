@@ -72,7 +72,21 @@ enum ExportPipeline {
         let top = max(0, min(crownY, chinY))
         let bottom = min(1, max(crownY, chinY))
         let headPx = (bottom - top) * h
-        guard headPx > 1 else { return (nil, "head span too small (\(Int(headPx))px)") }
+
+        // If the guides are unusable (degenerate/equal), never dead-end: fall back to a
+        // centered square from the upper part of the frame, where a selfie's head sits.
+        // The user still gets a valid 1200×1200 and can retake for tighter framing.
+        if headPx <= h * 0.02 {
+            let s = min(w, h)
+            let ox = min(max((w - s) / 2, 0), w - s)
+            let oy = min(max(h * 0.06, 0), h - s)
+            let rect = CGRect(x: ox.rounded(), y: oy.rounded(), width: s.rounded(), height: s.rounded())
+            if let c = base.cropping(to: rect) {
+                let sc = outputSize / CGFloat(c.width)
+                return (CIImage(cgImage: c).transformed(by: CGAffineTransform(scaleX: sc, y: sc)), nil)
+            }
+            return (nil, "fallback crop failed \(Int(w))×\(Int(h))")
+        }
 
         let side = min(headPx / targetHeadFraction, min(w, h))
         var originX = (w - side) / 2
