@@ -2,10 +2,6 @@ name: iOS CI
 on:
   push:
     branches: [ main ]
-    # Owner authorised this on 2026-07-21 so the upload can be iterated without a manual
-    # click on every attempt. Only a deliberate ship-* tag ships; ordinary commits never do.
-    # Revert to workflow_dispatch-only once the pipeline is green.
-    tags: [ 'ship-*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch: {}
@@ -14,9 +10,24 @@ jobs:
   build-test:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned XcodeGen
+        env:
+          XCODEGEN_VERSION: "2.45.4"
+          XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          install_dir="$RUNNER_TEMP/xcodegen"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" \
+            --output "$archive"
+          echo "${XCODEGEN_SHA256}  ${archive}" | shasum -a 256 --check -
+          unzip -q "$archive" -d "$install_dir"
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/xcodegen" --version
       - name: Generate Xcode project
         run: |
           xcodegen generate
@@ -39,19 +50,38 @@ jobs:
             tail -25 build.log | sed 's/^/::error::/'
             exit "$code"
           fi
-  # Manual-only (workflow_dispatch) TestFlight upload. Never auto-ships.
+  # Manual-only TestFlight upload. The protected environment adds an explicit
+  # owner approval after build/test succeeds and before signing secrets are used.
   ship-testflight:
     needs: build-test
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/ship-')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
+    environment: testflight
     permissions:
-      contents: write   # only to publish the failure log to the ci-logs branch
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - name: Install tools
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "3.4.10"
+          bundler-cache: true
+      - name: Install pinned XcodeGen
+        env:
+          XCODEGEN_VERSION: "2.45.4"
+          XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
         run: |
-          brew install xcodegen
-          gem install fastlane --no-document
+          set -euo pipefail
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          install_dir="$RUNNER_TEMP/xcodegen"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" \
+            --output "$archive"
+          echo "${XCODEGEN_SHA256}  ${archive}" | shasum -a 256 --check -
+          unzip -q "$archive" -d "$install_dir"
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/xcodegen" --version
       - name: Generate Xcode project
         run: xcodegen generate   # build number is set by the Fastfile, not edited in here
       - name: Build & upload to TestFlight
@@ -62,9 +92,9 @@ jobs:
         run: |
           set -uo pipefail
           xcodebuild -version
-          # The key must not survive the step. fl.log must, so the next step can publish
-          # the failure — annotations proved unreliable for anything log-sized.
-          trap 'rm -f asc_key.p8' EXIT
+          # The key and raw Fastlane log stay on the ephemeral runner only.
+          # Only the short error annotation below is sent to the Actions log.
+          trap 'rm -f asc_key.p8 fl.log' EXIT
           for secret_name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
             if [ -z "${!secret_name:-}" ]; then
               echo "::error::Required secret ${secret_name} is empty or missing."
@@ -86,51 +116,15 @@ jobs:
           fi
           echo "Private key parses OK."
           export ASC_KEY_PATH="$PWD/asc_key.p8"
-          fastlane beta 2>&1 | tee fl.log
-          code=${PIPESTATUS[0]}
+          bundle exec fastlane beta > fl.log 2>&1
+          code=$?
           if [ "$code" -ne 0 ]; then
-            echo "----- surfacing errors -----"
-            # One multi-line annotation with the log tail — GitHub caps the number of
-            # annotations, so many small ones push the real error out of view.
-            # Keep this small: GitHub silently drops annotations that get too large,
-            # which is how the real error went missing on runs 42 and 44.
-            TAILTXT=$(grep -E "^\[!\]|error:|Validation failed|ERROR ITMS" fl.log | tail -6 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
-            [ -z "$TAILTXT" ] && TAILTXT=$(tail -8 fl.log | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
-            echo "::error::LOG TAIL%0A${TAILTXT}"
+            category="unknown"
+            grep -qiE 'certificate.*(limit|maximum)|reached the maximum' fl.log && category="certificate-limit"
+            grep -qiE 'provisioning profile|no profiles for' fl.log && category="provisioning-profile"
+            grep -qiE 'validation failed|ERROR ITMS' fl.log && category="app-store-validation"
+            grep -qiE 'authentication|unauthorized|forbidden' fl.log && category="authentication"
+            echo "::error::Fastlane failed (category: ${category}). Raw output was withheld from the public Actions log."
             exit "$code"
           fi
-      # GitHub drops oversized annotations, and the raw logs need authentication to read.
-      # Publishing a sanitised excerpt to a dedicated branch makes failures self-reporting.
-      - name: Publish failure log
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          {
-            echo "run:        ${GITHUB_RUN_NUMBER}"
-            echo "commit:     ${GITHUB_SHA}"
-            echo "=== matched error lines ==="
-            grep -aE '^\[!\]|error:|Validation failed|ERROR ITMS|Could not|failed' fl.log | tail -25
-            echo "=== last 40 lines ==="
-            tail -40 fl.log
-          } 2>/dev/null \
-            | sed -e 's/\x1b\[[0-9;]*m//g' \
-            | grep -av 'PRIVATE KEY' \
-            | grep -avE '[A-Za-z0-9+/]{100,}' \
-            > ci-error.txt
-          echo "--- published excerpt ---"
-          cat ci-error.txt
-          # Publish from a throwaway repo: the checkout is dirty (generated project,
-          # rewritten build number), and git refuses to switch branches over that.
-          OUT=$(mktemp -d)
-          cp ci-error.txt "$OUT/"
-          cd "$OUT"
-          git init -q
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git checkout -q -b ci-logs
-          git add ci-error.txt
-          git commit -q -m "CI failure log for run ${GITHUB_RUN_NUMBER}"
-          git push -f -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-logs
-          echo "published to branch ci-logs"
+          echo "Fastlane completed successfully."

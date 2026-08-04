@@ -12,14 +12,16 @@ Accounts already set up: Apple Developer active (Team ID **645SRC2PTY**); GitHub
 3. Note the **Key ID** and the **Issuer ID** (top of the Keys page).
 4. **Download the .p8 file** (only downloadable once — keep it).
 
-## Step 2 — Add 3 GitHub repo secrets
-In **github.com/hvkh22-sudo/check123 → Settings → Secrets and variables → Actions → New repository secret**, add:
+## Step 2 — Add 3 protected GitHub Environment secrets
+In **github.com/hvkh22-sudo/check123 → Settings → Environments → testflight → Environment secrets**, add the values yourself:
 - `ASC_KEY_ID` = the Key ID
 - `ASC_ISSUER_ID` = the Issuer ID
 - `ASC_KEY_P8` = the **base64** of the .p8 file. Get it with, in a terminal:
   - macOS/Linux: `base64 -i AuthKey_XXXX.p8 | tr -d '\n'`
   - Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("AuthKey_XXXX.p8"))`
-  Paste the resulting string as the secret value.
+  Paste the resulting string directly as the Environment secret value.
+
+**Never send the `.p8` file, its contents, its base64 value, the Key ID, the Issuer ID, or any GitHub secret through AI chat, email, source control, or project documentation.** Keep the original `.p8` in an owner-controlled password manager or encrypted vault, and remove unsecured temporary copies after verifying the protected Environment secret.
 
 ## Step 3 — Run the upload
 GitHub repo → **Actions** tab → **iOS CI** workflow → **Run workflow** (main branch). This runs the
