@@ -1,0 +1,96 @@
+<title>PassCheck — מדריך העלאה ל-TestFlight</title>
+<style>
+  :root{
+    --bg:#F4F6F9; --card:#fff; --ink:#131820; --soft:#55617a; --line:#dce2ea;
+    --navy:#1D3E63; --navy2:#2D5A8E; --green:#1F7A54; --greenbg:#E4F1EA; --amber:#8A5E0F; --amberbg:#F6EDD9;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root{--bg:#0E141C;--card:#151E29;--ink:#E7ECF3;--soft:#93a0b2;--line:#2A3644;--navy:#7CA9DB;--navy2:#9CC3EF;--green:#4FB488;--greenbg:#12271F;--amber:#D6A648;--amberbg:#29210F;}}
+  :root[data-theme="dark"]{--bg:#0E141C;--card:#151E29;--ink:#E7ECF3;--soft:#93a0b2;--line:#2A3644;--navy:#7CA9DB;--navy2:#9CC3EF;--green:#4FB488;--greenbg:#12271F;--amber:#D6A648;--amberbg:#29210F;}
+  :root[data-theme="light"]{--bg:#F4F6F9;--card:#fff;--ink:#131820;--soft:#55617a;--line:#dce2ea;--navy:#1D3E63;--navy2:#2D5A8E;--green:#1F7A54;--greenbg:#E4F1EA;--amber:#8A5E0F;--amberbg:#F6EDD9;}
+  *{box-sizing:border-box;} body{margin:0;}
+  .wrap{background:var(--bg);color:var(--ink);font-family:var(--font);direction:rtl;line-height:1.7;padding:32px 18px 80px;}
+  .shell{max-width:760px;margin:0 auto;}
+  h1{font-size:clamp(1.6rem,5vw,2.2rem);margin:0 0 6px;letter-spacing:-.02em;}
+  .sub{color:var(--soft);margin:0 0 28px;}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .step h2{display:flex;align-items:center;gap:12px;font-size:1.2rem;margin:0 0 12px;letter-spacing:-.01em;}
+  .num{flex:none;width:34px;height:34px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:800;font-size:1rem;}
+  @media(prefers-color-scheme:dark){.num{color:#0E141C;}} :root[data-theme="dark"] .num{color:#0E141C;} :root[data-theme="light"] .num{color:#fff;}
+  ol,ul{margin:8px 0;padding-inline-start:22px;} li{margin:7px 0;}
+  .me{background:var(--greenbg);border:1px solid var(--green);border-radius:12px;padding:12px 14px;margin-top:12px;font-size:.95rem;}
+  .me b{color:var(--green);}
+  .warn{background:var(--amberbg);border:1px solid var(--amber);border-radius:12px;padding:12px 14px;margin-top:12px;font-size:.95rem;}
+  code,.copy{font-family:var(--mono);font-size:.9em;background:rgba(125,140,160,.15);padding:2px 6px;border-radius:5px;direction:ltr;display:inline-block;}
+  .block{font-family:var(--mono);font-size:.82rem;background:rgba(125,140,160,.13);border:1px solid var(--line);border-radius:8px;padding:12px;margin:10px 0;direction:ltr;text-align:left;overflow-x:auto;white-space:pre;}
+  .pill{display:inline-block;background:var(--navy);color:#fff;font-size:.8rem;padding:3px 10px;border-radius:999px;margin-inline-start:6px;}
+  @media(prefers-color-scheme:dark){.pill{color:#0E141C;}} :root[data-theme="dark"] .pill{color:#0E141C;}
+  .done{background:var(--navy);color:#fff;border-radius:16px;padding:22px;text-align:center;}
+  @media(prefers-color-scheme:dark){.done{background:#17324E;}} :root[data-theme="dark"] .done{background:#17324E;}
+  .done h2{color:#fff;margin:0 0 6px;} .done p{color:#DCE6F2;margin:0;}
+  .intro{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 22px;margin-bottom:22px;}
+</style>
+<div class="wrap"><div class="shell">
+  <h1>העלאת PassCheck לטלפון 📱</h1>
+  <p class="sub">מדריך צעד-אחר-צעד. אפשר לחזור לצ׳אט לקבלת הסבר, אך מפתחות וערכי סודות נשארים תמיד אצלך ומוזנים ישירות בממשקים המוגנים.</p>
+
+  <div class="intro">
+    <b>איך זה עובד:</b> יש לנו "רובוט" בענן (GitHub) שבונה את האפליקציה ומעלה אותה ל-TestFlight (האפליקציה של אפל לבדיקת אפליקציות לפני חנות). כדי שהרובוט יורשה להעלות, צריך לתת לו "מפתח" מ-Apple. זה מה שנעשה כאן.
+    <div class="me"><b>מה שהעוזר יכול לעשות בשבילך:</b> להסביר את השלבים ולקרוא תוצאות שאינן מכילות סודות. את קובץ המפתח והערכים שלו אתה שומר ומזין בעצמך בלבד.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">1</span> ליצור מפתח ב-App Store Connect</h2>
+    <ol>
+      <li>היכנס ל-<code>appstoreconnect.apple.com</code> (עם ה-Apple ID שלך).</li>
+      <li>למעלה: <b>Users and Access</b> → הלשונית <b>Integrations</b>.</li>
+      <li>תחת <b>App Store Connect API</b> → לחץ <b>+</b> (Generate API Key).</li>
+      <li>שם: <code>CI</code> · Access: <b>App Manager</b> → <b>Generate</b>.</li>
+      <li>הורד את הקובץ <b>.p8</b> (כפתור Download) ושמור אותו מיד בכספת סיסמאות או באחסון מוצפן שבשליטתך.</li>
+    </ol>
+    <div class="warn">⚠️ את קובץ ה-.p8 אפשר להוריד <b>פעם אחת בלבד</b>. לעולם אל תעלה אותו לצ׳אט, ל-Git, למסמך או לשירות שיתוף. אל תדביק בצ׳אט גם את תוכנו או את גרסת ה-base64 שלו.</div>
+    <div class="me"><b>מה אפשר לכתוב בצ׳אט:</b> רק שהשלב הושלם. אין לשלוח את ה-Key ID, ה-Issuer ID, קובץ ה-.p8 או ערך סוד כלשהו.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">2</span> להמיר את הקובץ מקומית <span class="pill">אתה עושה</span></h2>
+    <p>ב-PowerShell במחשב שלך הרץ: <code>[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\AuthKey_XXXX.p8"))</code>. העתק את הפלט ישירות לשדה הסוד ב-GitHub. <b>אל תדביק את הפלט בצ׳אט</b> ואל תשמור אותו בקוד או במסמך.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">3</span> להוסיף 3 סודות ל-GitHub</h2>
+    <ol>
+      <li>היכנס ל-<code>github.com/hvkh22-sudo/check123</code></li>
+      <li><b>Settings</b> → בצד: <b>Secrets and variables</b> → <b>Actions</b>.</li>
+      <li>פתח <b>Settings → Environments → testflight → Environment secrets</b>, והוסף שלושה ערכים בעצמך. אל תעביר אותם דרך צ׳אט:</li>
+    </ol>
+    <div class="block">Name: ASC_KEY_ID       Value: (ה-Key ID)
+Name: ASC_ISSUER_ID    Value: (ה-Issuer ID)
+Name: ASC_KEY_P8       Value: (פלט ה-base64 שיצרת מקומית)</div>
+    <div class="me"><b>הערכים נשארים רק בינך, Apple וה-Environment המוגן ב-GitHub.</b> העוזר אינו צריך לראות אותם.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">4</span> להריץ את ההעלאה</h2>
+    <ol>
+      <li>ב-<code>github.com/hvkh22-sudo/check123</code> → לשונית <b>Actions</b>.</li>
+      <li>בצד שמאל בחר <b>iOS CI</b> → לחץ <b>Run workflow</b> → שוב <b>Run workflow</b> (הכפתור הירוק).</li>
+    </ol>
+    <div class="me"><b>אני אקרא את התוצאה בשבילך</b> ואגיד אם הצליח או אתקן שגיאה. פשוט כתוב לי "הרצתי".</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">5</span> להתקין על ה-iPhone</h2>
+    <ul>
+      <li>אחרי שההעלאה מצליחה, ב-App Store Connect → <b>TestFlight</b> → הוסף את עצמך כ-<b>Internal Tester</b>.</li>
+      <li>בטלפון: התקן את האפליקציה <b>TestFlight</b> מהחנות, קבל את ההזמנה, והתקן את PassCheck.</li>
+      <li>🎉 האפליקציה על הטלפון שלך — נבדוק את דיוק המנוע יחד.</li>
+    </ul>
+  </div>
+
+  <div class="done">
+    <h2>נתקעת בשלב כלשהו?</h2>
+    <p>אפשר לצלם את המסך או להעתיק שגיאה לצ׳אט רק לאחר שמסתירים מפתחות, ערכי סודות, כתובות אימייל ומזהים אישיים. לעולם אין לצרף את מסך ה-Environment secrets.</p>
+  </div>
+</div></div>
