@@ -10,6 +10,18 @@ struct VisionComplianceEngine: ComplianceEngine {
     let engineVersion = "0.2-vision"
 
     func analyze(_ fullImage: CIImage) async -> ComplianceReport {
+        let cancellation = VisionRequestCancellation()
+        return await withTaskCancellationHandler(operation: {
+            performAnalysis(fullImage, cancellation: cancellation)
+        }, onCancel: {
+            cancellation.cancelAll()
+        })
+    }
+
+    private func performAnalysis(
+        _ fullImage: CIImage,
+        cancellation: VisionRequestCancellation
+    ) -> ComplianceReport {
         // Analyse a small copy. Face/background fractions are resolution-independent, but
         // person segmentation is heavy — on a large photo it made the "Checking your photo"
         // screen look frozen. 768px keeps detection accurate while cutting analysis time.
@@ -17,6 +29,9 @@ struct VisionComplianceEngine: ComplianceEngine {
 
         let landmarksReq = VNDetectFaceLandmarksRequest()
         let qualityReq = VNDetectFaceCaptureQualityRequest()
+        cancellation.register(landmarksReq)
+        cancellation.register(qualityReq)
+        guard !Task.isCancelled else { return cancelledReport() }
 
         // `.up` is correct because both capture paths bake EXIF orientation into the
         // pixels before we get here (see CIImage.uprighted()).
@@ -24,6 +39,7 @@ struct VisionComplianceEngine: ComplianceEngine {
         do {
             try handler.perform([landmarksReq, qualityReq])
         } catch {
+            if Task.isCancelled { return cancelledReport() }
             return report([RuleResult(id: "engine.error", status: .verifiedFail, measured: nil, unit: nil,
                                       message: "Couldn't analyze the photo — please retake.")])
         }
@@ -90,7 +106,8 @@ struct VisionComplianceEngine: ComplianceEngine {
             message: "Head size — we'll frame it correctly on the next step."))
 
         // Background — now measured on-device (person segmentation), not self-reported.
-        let bg = BackgroundAnalyzer.analyze(image)
+        guard !Task.isCancelled else { return cancelledReport() }
+        let bg = BackgroundAnalyzer.analyze(image, cancellation: cancellation)
         results.append(RuleResult(
             id: "bg.plain",
             status: bg.luminance == nil ? .confirm : (bg.ok ? .verifiedPass : .verifiedFail),
@@ -120,6 +137,12 @@ struct VisionComplianceEngine: ComplianceEngine {
 
     private func report(_ r: [RuleResult]) -> ComplianceReport {
         ComplianceReport(results: r, engineVersion: engineVersion)
+    }
+
+    private func cancelledReport() -> ComplianceReport {
+        report([RuleResult(id: "engine.cancelled", status: .verifiedFail,
+                           measured: nil, unit: nil,
+                           message: "Photo checking was cancelled.")])
     }
 
     // (clamp helper defined at file scope below)

@@ -90,6 +90,9 @@ struct AssistedCropView: View {
                 hasAdjusted = true
             }
         }
+        .onDisappear {
+            rendered = nil
+        }
     }
 
     private var headHeightPct: Double { Double(abs(chinY - crownY)) * 100 }

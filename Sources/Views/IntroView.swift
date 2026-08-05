@@ -35,7 +35,7 @@ struct IntroView: View {
 
             VStack(spacing: 12) {
                 featureRow("checklist", "Checks against the official US rules")
-                featureRow("iphone", "Runs 100% on your phone — nothing is uploaded")
+                featureRow("iphone", "Checks run on your phone — PassCheck never uploads your photo")
                 featureRow("creditcard", "No subscription — pay once, only to export")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

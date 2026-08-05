@@ -1,14 +1,20 @@
 import SwiftUI
 import CoreImage
+import UIKit
 
 /// Full app flow: Intro → Document type → Capture → Compliance review → Export → Done.
 /// Capture uses library import for now (camera + real Vision engine land on-device).
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var path = NavigationPath()
     @State private var docType: DocumentType = .usPassport
     @State private var capturedImage: CIImage?
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
+    @State private var analysisTask: Task<Void, Never>?
+    @State private var analysisGeneration = UUID()
+    @State private var previousPathCount = 0
 
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
@@ -30,12 +36,7 @@ struct RootView: View {
                                          onContinue: { path.append(Route.capture) })
                     case .capture:
                         CaptureView(onPhoto: { image in
-                            // Downscale once at ingest: full-res photos make Vision analysis
-                            // look frozen and strain memory downstream. 2400px keeps the
-                            // 1200px export crisp.
-                            let prepared = image.downscaled()
-                            capturedImage = prepared
-                            Task { await runCheck(prepared) }
+                            startCheck(image)
                         })
                     case .review:
                         // Never render nothing here. Before this had a bare `if let`, so a
@@ -62,8 +63,7 @@ struct RootView: View {
                                     .font(.footnote).foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                                 Button("Try another photo") {
-                                    path = NavigationPath()
-                                    path.append(Route.capture)
+                                    restartAtCapture()
                                 }
                                 .buttonStyle(.borderedProminent)
                             }
@@ -83,27 +83,63 @@ struct RootView: View {
                         ExportView(source: capturedImage,
                                    crownY: CGFloat(cy),
                                    chinY: CGFloat(chy),
-                                   onDone: { path.append(Route.done) },
-                                   onRetake: {
-                                       capturedImage = nil
-                                       report = nil
+                                   onDone: {
+                                       discardSensitiveSession()
                                        path = NavigationPath()
-                                       path.append(Route.capture)
-                                   })
+                                       path.append(Route.done)
+                                   },
+                                   onRetake: { restartAtCapture() })
                     case .done:
                         DoneView(onRestart: {
-                            // The privacy policy promises the photo is gone once you
-                            // export or leave — actually drop it, don't just navigate.
-                            capturedImage = nil
-                            report = nil
+                            discardSensitiveSession()
                             path = NavigationPath()
                         })
                     }
                 }
         }
+        .overlay {
+            if scenePhase != .active {
+                PrivacyCover()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didReceiveMemoryWarningNotification
+        )) { _ in
+            // Preserve an active foreground session, but release facial imagery if iOS is
+            // already reclaiming memory while the app is hidden.
+            if scenePhase != .active {
+                discardSensitiveSession(resetNavigation: true)
+            }
+        }
+        .onChange(of: path.count) { count in
+            // Returning to Capture, Document Type, or Intro ends the prior photo session.
+            let shouldDiscard = Self.shouldDiscardSession(
+                previousPathCount: previousPathCount,
+                currentPathCount: count,
+                hasSensitiveData: capturedImage != nil || report != nil || isAnalyzing
+            )
+            previousPathCount = count
+            if shouldDiscard {
+                discardSensitiveSession()
+            }
+        }
     }
 
-    private func runCheck(_ image: CIImage) async {
+    private func startCheck(_ image: CIImage) {
+        // Camera frames are bounded here; library imports are already validated and
+        // downsampled by ImageImportProcessor before they reach this closure.
+        let prepared = image.downscaled()
+        discardSensitiveSession()
+        capturedImage = prepared
+
+        let generation = UUID()
+        analysisGeneration = generation
+        analysisTask = Task {
+            await runCheck(prepared, generation: generation)
+        }
+    }
+
+    private func runCheck(_ image: CIImage, generation: UUID) async {
         // Navigate first so the user sees progress instead of a frozen capture screen,
         // then fill in the result.
         report = nil
@@ -113,50 +149,58 @@ struct RootView: View {
         // Always finish within a bounded time. Vision (especially person segmentation) can
         // occasionally stall on a frame; without a timeout that left "Checking your photo…"
         // on screen forever. Racing a timeout guarantees the spinner always resolves.
-        report = await Self.analyzeWithTimeout(engine, image, seconds: 6)
+        let result = await Self.analyzeWithTimeout(engine, image, seconds: 6)
+        guard !Task.isCancelled, generation == analysisGeneration else { return }
+        report = result
         isAnalyzing = false
+        analysisTask = nil
     }
 
-    private static func analyzeWithTimeout(_ engine: ComplianceEngine,
-                                           _ image: CIImage,
-                                           seconds: Double) async -> ComplianceReport {
-        // withTaskGroup implicitly awaits ALL children before returning, and Vision's
-        // synchronous perform() cannot be cancelled — so a stalled analysis would still
-        // hang the screen. Instead resolve from whichever finishes first via a
-        // resume-once box; the losing task keeps running but its result is discarded.
-        let box = ResolveOnceBox()
-        return await withCheckedContinuation { cont in
-            box.attach(cont)
-            Task.detached { box.resolve(await engine.analyze(image)) }
-            Task.detached {
+    static func analyzeWithTimeout(_ engine: ComplianceEngine,
+                                   _ image: CIImage,
+                                   seconds: Double) async -> ComplianceReport {
+        await withTaskGroup(of: ComplianceReport.self) { group in
+            group.addTask { await engine.analyze(image) }
+            group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                box.resolve(ComplianceReport(
+                return ComplianceReport(
                     results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
                                          measured: nil, unit: nil,
                                          message: "Checking took too long — please retake in better light.")],
-                    engineVersion: "timeout"))
+                    engineVersion: "timeout")
             }
+            let first = await group.next() ?? ComplianceReport(results: [], engineVersion: "cancelled")
+            // VisionComplianceEngine forwards cancellation to every active VNRequest, so
+            // the task group releases the image instead of leaving orphaned work behind.
+            group.cancelAll()
+            return first
         }
     }
-}
 
-/// Delivers exactly one result to a continuation, whichever racing task resolves first.
-private final class ResolveOnceBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var done = false
-    private var cont: CheckedContinuation<ComplianceReport, Never>?
-
-    func attach(_ c: CheckedContinuation<ComplianceReport, Never>) {
-        lock.lock(); defer { lock.unlock() }
-        cont = c
+    static func shouldDiscardSession(
+        previousPathCount: Int,
+        currentPathCount: Int,
+        hasSensitiveData: Bool
+    ) -> Bool {
+        hasSensitiveData && currentPathCount < previousPathCount && currentPathCount <= 2
     }
 
-    func resolve(_ report: ComplianceReport) {
-        lock.lock(); defer { lock.unlock() }
-        guard !done, let c = cont else { return }
-        done = true
-        cont = nil
-        c.resume(returning: report)
+    private func restartAtCapture() {
+        discardSensitiveSession()
+        path = NavigationPath()
+        path.append(Route.capture)
+    }
+
+    private func discardSensitiveSession(resetNavigation: Bool = false) {
+        analysisTask?.cancel()
+        analysisTask = nil
+        analysisGeneration = UUID()
+        capturedImage = nil
+        report = nil
+        isAnalyzing = false
+        if resetNavigation {
+            path = NavigationPath()
+        }
     }
 }
 

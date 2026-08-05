@@ -11,6 +11,7 @@ struct LiveCaptureView: View {
 
     @StateObject private var coach = LiveFaceCoach()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -26,6 +27,11 @@ struct LiveCaptureView: View {
                         detail: "Turn it on in Settings › PassCheck, or choose a photo from your library instead.")
             case .failed(let reason):
                 message("The camera didn't start", detail: reason)
+            }
+        }
+        .overlay {
+            if scenePhase != .active {
+                PrivacyCover()
             }
         }
         .task { await coach.start() }

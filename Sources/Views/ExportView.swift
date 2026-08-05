@@ -31,14 +31,21 @@ struct ExportView: View {
             failureReason = "no photo to prepare"; isCropped = false; preparing = false; return
         }
         let cy = crownY, chy = chinY
-        let outcome: (image: UIImage?, reason: String?) = await Task.detached {
+        let renderTask = Task.detached { () -> (image: UIImage?, reason: String?) in
             for attempt in 1...3 {
+                guard !Task.isCancelled else { return (nil, "cancelled") }
                 let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy)
                 if let img = r.image { return (Self.render(img), nil) }
                 if attempt == 3 { return (nil, r.reason) }
             }
             return (nil, "couldn't prepare the photo")
-        }.value
+        }
+        let outcome = await withTaskCancellationHandler(operation: {
+            await renderTask.value
+        }, onCancel: {
+            renderTask.cancel()
+        })
+        guard !Task.isCancelled else { return }
 
         renderedImage = outcome.image
         isCropped = outcome.image != nil
@@ -105,7 +112,10 @@ struct ExportView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
-                Button("Done", action: onDone)
+                Button("Done") {
+                    renderedImage = nil
+                    onDone()
+                }
             } else {
                 Button {
                     Task {
@@ -150,6 +160,9 @@ struct ExportView: View {
         .task {
             await prepare()
             await store.load()
+        }
+        .onDisappear {
+            renderedImage = nil
         }
     }
 

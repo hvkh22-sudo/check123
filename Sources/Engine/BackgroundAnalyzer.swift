@@ -16,14 +16,25 @@ enum BackgroundAnalyzer {
         let luminance: Double?
     }
 
-    static func analyze(_ image: CIImage) -> Result {
+    static func analyze(
+        _ image: CIImage,
+        cancellation: VisionRequestCancellation? = nil
+    ) -> Result {
         let req = VNGeneratePersonSegmentationRequest()
         req.qualityLevel = .fast   // .balanced was slow enough to look frozen
         req.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        cancellation?.register(req)
+
+        guard !Task.isCancelled else {
+            return Result(ok: false, message: "Photo checking was cancelled.", luminance: nil)
+        }
 
         let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [:])
         guard (try? handler.perform([req])) != nil,
               let mask = req.results?.first?.pixelBuffer else {
+            if Task.isCancelled {
+                return Result(ok: false, message: "Photo checking was cancelled.", luminance: nil)
+            }
             // Segmentation unavailable (older device / failure) — fall back to asking.
             return Result(ok: false, message: "Is the background a plain, light, shadow-free wall?",
                           luminance: nil)

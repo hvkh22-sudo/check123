@@ -2,6 +2,7 @@ import AVFoundation
 import CoreImage
 import SwiftUI
 import Vision
+import UniformTypeIdentifiers
 
 /// Real-time coaching from the camera feed: runs the same Vision checks as the still-photo
 /// engine, several times a second, and publishes one short instruction at a time.
@@ -193,14 +194,16 @@ extension LiveFaceCoach: AVCapturePhotoCaptureDelegate {
         // On any failure (capture error, unreadable data) clear the in-flight state and
         // surface a hint, so the shutter never silently no-ops and leaves the user stuck.
         let image: CIImage? = (error == nil)
-            ? photo.fileDataRepresentation().flatMap { CIImage(data: $0) }
+            ? photo.fileDataRepresentation().flatMap {
+                try? ImageImportProcessor.prepare(data: $0, supportedContentTypes: [.image])
+            }
             : nil
         Task { @MainActor in
             self.captureInFlight = false
             if let image {
-                // uprighted() bakes in EXIF orientation, so everything downstream —
-                // Vision, the crop, the export — sees the photo the way the user saw it.
-                self.photoHandler?(image.uprighted())
+                // ImageImportProcessor applies EXIF orientation while creating the bounded
+                // thumbnail, so downstream Vision/crop/export sees the displayed geometry.
+                self.photoHandler?(image)
                 self.photoHandler = nil
             } else {
                 self.photoHandler = nil
