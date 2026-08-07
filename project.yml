@@ -35,10 +35,10 @@ targets:
         # Portrait-only: the capture/crop flow is designed for one orientation,
         # and iPhone-only avoids untestable iPad multitasking requirements.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        NSCameraUsageDescription: "Take your passport photo — it is processed only on this device and never uploaded."
+        NSCameraUsageDescription: "Take your passport photo. PassCheck processes it only on this device and does not upload it."
         # Required by the Save Image path in the share sheet. Without it iOS terminates
         # the app the moment the user saves — on the screen they just paid for.
-        NSPhotoLibraryAddUsageDescription: "Save your finished passport photo to your photo library. It stays on this device."
+        NSPhotoLibraryAddUsageDescription: "Save your finished passport photo to the Photos library you select. Photos may sync according to your iCloud settings."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck

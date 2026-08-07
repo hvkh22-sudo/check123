@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import CoreImage
 import UIKit
+import UniformTypeIdentifiers
 
 /// Screen 3 — capture or import a photo. Camera (AVFoundation) is wired on-device later;
 /// library import via PhotosPicker works now (also how we exercise the flow in the simulator).
@@ -48,14 +49,18 @@ struct CaptureView: View {
                         .padding()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(loading)
             }
 
-            PhotosPicker(selection: $pickerItem, matching: .images) {
+            PhotosPicker(selection: $pickerItem,
+                         matching: .images,
+                         preferredItemEncoding: .current) {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
                     .frame(maxWidth: .infinity)
                     .padding()
             }
             .buttonStyle(.bordered)
+            .disabled(loading)
 
             if loading { ProgressView() }
         }
@@ -76,14 +81,26 @@ struct CaptureView: View {
     }
 
     private func loadSelectedPhoto() async {
-        guard let pickerItem else { return }
+        guard let pickerItem, !loading else { return }
         loading = true
-        defer { loading = false }
-        if let data = try? await pickerItem.loadTransferable(type: Data.self),
-           let ciImage = CIImage(data: data) {
-            onPhoto(ciImage.uprighted())
-        } else {
-            errorText = "That photo couldn't be read. Try a different one."
+        errorText = nil
+        defer {
+            loading = false
+            self.pickerItem = nil
+        }
+
+        do {
+            guard pickerItem.supportedContentTypes.contains(where: { $0.conforms(to: .image) }),
+                  let imported = try await pickerItem.loadTransferable(
+                    type: BoundedImportedImage.self
+                  ) else {
+                throw ImageImportError.unsupportedType
+            }
+            guard !Task.isCancelled else { return }
+            onPhoto(imported.image)
+        } catch {
+            errorText = (error as? LocalizedError)?.errorDescription ??
+                "That photo couldn't be read. Try a different one."
         }
     }
 }
