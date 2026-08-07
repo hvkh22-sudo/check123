@@ -146,6 +146,8 @@ struct ExportView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                LegalLinksView()
+
                 if let message = store.errorMessage {
                     Text(message)
                         .font(.footnote)

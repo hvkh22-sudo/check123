@@ -24,7 +24,7 @@ struct LiveCaptureView: View {
                 ProgressView().tint(.white)
             case .denied:
                 message("Camera access is off",
-                        detail: "Turn it on in Settings › PassCheck, or choose a photo from your library instead.")
+                        detail: "Turn it on in Settings › BorderPixel, or choose a photo from your library instead.")
             case .failed(let reason):
                 message("The camera didn't start", detail: reason)
             }
