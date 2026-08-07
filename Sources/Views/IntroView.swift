@@ -35,7 +35,7 @@ struct IntroView: View {
 
             VStack(spacing: 12) {
                 featureRow("checklist", "Checks against the official US rules")
-                featureRow("iphone", "Checks run on your phone — PassCheck never uploads your photo")
+                featureRow("iphone", "Checks run on your phone — BorderPixel never uploads your photo")
                 featureRow("creditcard", "No subscription — pay once, only to export")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -52,6 +52,9 @@ struct IntroView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 12)
+
+            LegalLinksView()
+                .padding(.top, 10)
         }
         .padding(.horizontal, 22)
         .padding(.bottom, 12)

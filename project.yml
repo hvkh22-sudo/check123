@@ -24,7 +24,11 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: PassCheck
+        # User-visible name only. The target, scheme, bundle identifier and App Store
+        # Connect record stay `PassCheck`/`com.appstudio.passcheck`: renaming those would
+        # break CI and orphan the existing app record. The App Store listing title is
+        # "BorderPixel: Passport Photo"; the Home-screen name is the short form.
+        CFBundleDisplayName: BorderPixel
         # Without these, XcodeGen bakes a literal "1" into the Info.plist and the build
         # settings are ignored — which is why three uploads were rejected for reusing
         # build number 1. Referencing the settings lets CI override the build number.
@@ -35,7 +39,7 @@ targets:
         # Portrait-only: the capture/crop flow is designed for one orientation,
         # and iPhone-only avoids untestable iPad multitasking requirements.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        NSCameraUsageDescription: "Take your passport photo. PassCheck processes it only on this device and does not upload it."
+        NSCameraUsageDescription: "Take your passport photo. BorderPixel processes it only on this device and does not upload it."
         # Required by the Save Image path in the share sheet. Without it iOS terminates
         # the app the moment the user saves — on the screen they just paid for.
         NSPhotoLibraryAddUsageDescription: "Save your finished passport photo to the Photos library you select. Photos may sync according to your iCloud settings."
