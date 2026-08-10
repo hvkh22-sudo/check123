@@ -54,8 +54,11 @@ final class LiveBackgroundSampler: @unchecked Sendable {
         // generated at a different orientation would misalign the two and end up sampling
         // the person instead of the wall.
         let oriented = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
-        let longest = max(oriented.extent.width, oriented.extent.height)
-        guard longest > 0, oriented.extent.isFinite else { return .skipped }
+        let extent = oriented.extent
+        // `CGRect.isFinite` is package-internal in this SDK; `isInfinite` is the public
+        // counterpart, and it is what BackgroundAnalyzer already guards with.
+        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return .skipped }
+        let longest = max(extent.width, extent.height)
         let scale = min(1, targetLongestEdge / longest)
         let frame = scale < 1
             ? oriented.transformed(by: CGAffineTransform(scaleX: scale, y: scale))

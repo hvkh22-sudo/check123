@@ -4,6 +4,13 @@ import SwiftUI
 import Vision
 import UniformTypeIdentifiers
 
+/// Front-camera buffers in portrait arrive rotated; Vision needs to be told.
+///
+/// A file-scope constant rather than a static on `LiveFaceCoach`: a static inside a
+/// `@MainActor` type inherits that isolation, and the sample-buffer delegate that needs it
+/// is nonisolated (an error, not a warning, under the Swift 6 language mode).
+private let liveBufferOrientation: CGImagePropertyOrientation = .leftMirrored
+
 /// Real-time coaching from the camera feed: runs the same Vision checks as the still-photo
 /// engine, several times a second, and publishes one short instruction at a time.
 ///
@@ -140,14 +147,12 @@ final class LiveFaceCoach: NSObject, ObservableObject {
 
     // MARK: - Guidance
 
-    /// Front-camera buffers in portrait arrive rotated; Vision needs to be told.
-    /// Static so the nonisolated sample-buffer delegate can read it too.
-    fileprivate static let bufferOrientation: CGImagePropertyOrientation = .leftMirrored
+    // Frame orientation lives at file scope — see `liveBufferOrientation` below.
 
     fileprivate func analyze(_ pixelBuffer: CVPixelBuffer) {
         let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                            orientation: Self.bufferOrientation,
+                                            orientation: liveBufferOrientation,
                                             options: [:])
         try? handler.perform([request])
         let faces = request.results ?? []
@@ -208,7 +213,7 @@ extension LiveFaceCoach: AVCaptureVideoDataOutputSampleBufferDelegate {
         // during a pass are harmless: `alwaysDiscardsLateVideoFrames` is on and the preview
         // layer draws independently of this output.
         if case .measured(let warning) = backgroundSampler.consider(buffer,
-                                                                    orientation: Self.bufferOrientation) {
+                                                                    orientation: liveBufferOrientation) {
             Task { @MainActor in self.backgroundHint = warning }
         }
 
