@@ -3,8 +3,11 @@ import CoreImage
 import SwiftUI
 
 /// Live camera with real-time coaching. The oval turns green and the shutter unlocks only
-/// when the frame passes every check we can make without calibration, so people are guided
-/// to a good photo instead of judged after taking a bad one.
+/// when the frame passes every face check we can make without calibration, so people are
+/// guided to a good photo instead of judged after taking a bad one.
+///
+/// The background is measured live too, but it warns rather than locking the shutter —
+/// see `LiveGuidance.isReady` for why.
 struct LiveCaptureView: View {
     var onPhoto: (CIImage) -> Void
     var onFallback: () -> Void
@@ -43,12 +46,14 @@ struct LiveCaptureView: View {
             CameraPreview(session: coach.session)
                 .ignoresSafeArea()
 
+            // The wall is checked while the user is still standing there, not after the
+            // shutter, so the warning has to be visible on this screen.
+            if coach.backgroundHint != nil {
+                BackgroundWarningWash()
+            }
+
             // The oval is where the head belongs. Green means every live check passes.
-            Ellipse()
-                .stroke(coach.isReady ? Color.green : Color.white.opacity(0.85),
-                        style: StrokeStyle(lineWidth: 3, dash: coach.isReady ? [] : [10, 8]))
-                .frame(width: 250, height: 330)
-                .animation(.easeInOut(duration: 0.2), value: coach.isReady)
+            FaceScanOverlay(isReady: coach.isReady)
 
             VStack {
                 Text(coach.hint ?? "Looks good — take the photo")
@@ -58,6 +63,19 @@ struct LiveCaptureView: View {
                     .background(.black.opacity(0.55), in: Capsule())
                     .padding(.top, 24)
                     .animation(.easeInOut(duration: 0.15), value: coach.hint)
+
+                // Only appears when the main line is busy with a face instruction —
+                // otherwise the background warning is already the main line.
+                if let warning = coach.secondaryWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(.orange.opacity(0.85), in: Capsule())
+                        .padding(.top, 8)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: warning)
+                }
 
                 Spacer()
 

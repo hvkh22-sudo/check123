@@ -22,10 +22,23 @@ final class LiveFaceCoach: NSObject, ObservableObject {
     }
 
     @Published private(set) var status: Status = .starting
-    /// The single most important thing to fix right now, or nil when the frame looks good.
-    @Published private(set) var hint: String?
+    /// What the face checks want fixed, or nil when the face itself looks right.
+    @Published private(set) var faceHint: String?
+    /// What the live background check wants fixed, or nil when the wall behind is fine
+    /// (or hasn't been measured yet).
+    @Published private(set) var backgroundHint: String?
     /// True when every live check passes — the shutter turns green.
     @Published private(set) var isReady = false
+
+    /// The single most important thing to fix right now, or nil when the frame looks good.
+    var hint: String? {
+        LiveGuidance.primaryHint(faceHint: faceHint, backgroundHint: backgroundHint)
+    }
+
+    /// A background warning worth showing under the main line, or nil.
+    var secondaryWarning: String? {
+        LiveGuidance.secondaryWarning(faceHint: faceHint, backgroundHint: backgroundHint)
+    }
 
     let session = AVCaptureSession()
 
@@ -38,6 +51,11 @@ final class LiveFaceCoach: NSObject, ObservableObject {
     /// is faster than anyone can react to anyway.
     private var lastAnalysis = Date.distantPast
     private let analysisInterval: TimeInterval = 0.25
+
+    /// Background segmentation runs on the capture queue at its own slower cadence — see
+    /// LiveBackgroundSampler for why it cannot share the face path. Declared `nonisolated`
+    /// so the sample-buffer delegate can reach it without hopping to the main actor.
+    private nonisolated let backgroundSampler = LiveBackgroundSampler()
 
     // MARK: - Lifecycle
 
@@ -69,6 +87,11 @@ final class LiveFaceCoach: NSObject, ObservableObject {
     func stop() {
         let session = self.session
         queue.async { session.stopRunning() }
+        // Otherwise a warning measured just before the screen closed is still on screen
+        // for over a second the next time it opens, describing a wall that isn't there.
+        faceHint = nil
+        backgroundHint = nil
+        isReady = false
     }
 
     private func configure() -> Bool {
@@ -118,43 +141,45 @@ final class LiveFaceCoach: NSObject, ObservableObject {
     // MARK: - Guidance
 
     /// Front-camera buffers in portrait arrive rotated; Vision needs to be told.
-    private let bufferOrientation: CGImagePropertyOrientation = .leftMirrored
+    /// Static so the nonisolated sample-buffer delegate can read it too.
+    fileprivate static let bufferOrientation: CGImagePropertyOrientation = .leftMirrored
 
     fileprivate func analyze(_ pixelBuffer: CVPixelBuffer) {
         let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                            orientation: bufferOrientation,
+                                            orientation: Self.bufferOrientation,
                                             options: [:])
         try? handler.perform([request])
         let faces = request.results ?? []
 
-        let (hint, ready) = guidance(for: faces)
+        let hint = guidance(for: faces)
         Task { @MainActor in
-            self.hint = hint
-            self.isReady = ready
+            self.faceHint = hint
+            self.isReady = LiveGuidance.isReady(faceHint: hint)
         }
     }
 
     /// One instruction at a time, ordered by what blocks the shot most.
-    private func guidance(for faces: [VNFaceObservation]) -> (String?, Bool) {
+    /// Returns nil when the face itself passes every check we can make without calibration.
+    private func guidance(for faces: [VNFaceObservation]) -> String? {
         guard let face = faces.max(by: { $0.boundingBox.height < $1.boundingBox.height }) else {
-            return ("Put your face in the oval", false)
+            return "Put your face in the oval"
         }
         if faces.count > 1 {
-            return ("Only you should be in the frame", false)
+            return "Only you should be in the frame"
         }
 
         let roll = abs((face.roll?.doubleValue ?? 0) * 180 / .pi)
         let yaw = abs((face.yaw?.doubleValue ?? 0) * 180 / .pi)
         if max(roll, yaw) > PassportRules.rollToleranceDeg {
-            return (yaw > roll ? "Turn to face the camera" : "Straighten your head", false)
+            return yaw > roll ? "Turn to face the camera" : "Straighten your head"
         }
 
         if abs(face.boundingBox.midX - 0.5) > PassportRules.centeringTolerance {
-            return ("Center your face", false)
+            return "Center your face"
         }
         if abs(face.boundingBox.midY - 0.5) > 0.15 {
-            return (face.boundingBox.midY > 0.5 ? "Lower the camera" : "Raise the camera", false)
+            return face.boundingBox.midY > 0.5 ? "Lower the camera" : "Raise the camera"
         }
 
         // Head size guidance is withheld until the crown estimate is calibrated —
@@ -162,11 +187,11 @@ final class LiveFaceCoach: NSObject, ObservableObject {
         if PassportRules.isHeadHeightCalibrated {
             let pct = PassportRules.estimatedHeadHeightPct(
                 faceBoxHeightFraction: Double(face.boundingBox.height))
-            if pct < PassportRules.headHeightMinPct { return ("Move closer", false) }
-            if pct > PassportRules.headHeightMaxPct { return ("Move back a little", false) }
+            if pct < PassportRules.headHeightMinPct { return "Move closer" }
+            if pct > PassportRules.headHeightMaxPct { return "Move back a little" }
         }
 
-        return (nil, true)
+        return nil
     }
 }
 
@@ -177,6 +202,16 @@ extension LiveFaceCoach: AVCaptureVideoDataOutputSampleBufferDelegate {
                                    didOutput sampleBuffer: CMSampleBuffer,
                                    from connection: AVCaptureConnection) {
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        // Background segmentation happens here, synchronously on the capture queue, because
+        // the pixel buffer is recycled as soon as this callback returns. Frames dropped
+        // during a pass are harmless: `alwaysDiscardsLateVideoFrames` is on and the preview
+        // layer draws independently of this output.
+        if case .measured(let warning) = backgroundSampler.consider(buffer,
+                                                                    orientation: Self.bufferOrientation) {
+            Task { @MainActor in self.backgroundHint = warning }
+        }
+
         Task { @MainActor in
             guard Date().timeIntervalSince(self.lastAnalysis) >= self.analysisInterval else { return }
             self.lastAnalysis = Date()
@@ -207,7 +242,7 @@ extension LiveFaceCoach: AVCapturePhotoCaptureDelegate {
                 self.photoHandler = nil
             } else {
                 self.photoHandler = nil
-                self.hint = "That shot didn't save — try again"
+                self.faceHint = "That shot didn't save — try again"
             }
         }
     }
