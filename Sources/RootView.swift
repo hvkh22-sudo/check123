@@ -8,7 +8,6 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var path = NavigationPath()
-    @State private var docType: DocumentType = .usPassport
     @State private var capturedImage: CIImage?
     @State private var report: ComplianceReport?
     @State private var isAnalyzing = false
@@ -32,8 +31,7 @@ struct RootView: View {
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .documentType:
-                        DocumentTypeView(selected: $docType,
-                                         onContinue: { path.append(Route.capture) })
+                        DocumentTypeView(onContinue: { path.append(Route.capture) })
                     case .capture:
                         CaptureView(onPhoto: { image in
                             startCheck(image)
