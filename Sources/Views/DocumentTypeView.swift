@@ -1,17 +1,22 @@
 import SwiftUI
 
-/// Screen 2 — document type select. MVP ships US Passport only; others shown as "soon".
+/// The one document type this version checks.
+///
+/// `US Visa / Green Card` and `Other country` used to sit here greyed out with a "soon"
+/// badge. They were removed: a promise with no date reads as an unfinished app, and the
+/// rules engine has no per-country table behind it to make them real (see D-018).
 enum DocumentType: String, CaseIterable, Identifiable {
     case usPassport = "US Passport"
-    case usVisa = "US Visa / Green Card"
-    case other = "Other country"
 
     var id: String { rawValue }
-    var available: Bool { self == .usPassport }   // MVP scope
 }
 
+/// Screen 2 — states what the app is about to check, before the user spends time on a photo.
+///
+/// This is the in-app half of the expectation-setting the App Store description does: the
+/// listing is available worldwide because US citizens abroad renew US passports, so someone
+/// who needs a 35x45 mm photo has to find out here, not after paying.
 struct DocumentTypeView: View {
-    @Binding var selected: DocumentType
     var onContinue: () -> Void = {}
 
     var body: some View {
@@ -21,37 +26,27 @@ struct DocumentTypeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 8)
 
-            VStack(spacing: 0) {
-                ForEach(DocumentType.allCases) { type in
-                    Button {
-                        if type.available { selected = type }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: selected == type ? "largecircle.fill.circle" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(selected == type ? Brand.primary
-                                                 : (type.available ? Color.secondary : Color.secondary.opacity(0.5)))
-                            Text(type.rawValue)
-                                .foregroundStyle(type.available ? Color.primary : Color.secondary)
-                            Spacer()
-                            if !type.available {
-                                Text("soon")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(Color.secondary.opacity(0.12), in: Capsule())
-                            }
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 15)
-                    }
-                    .disabled(!type.available)
-                    if type != DocumentType.allCases.last {
-                        Divider().padding(.leading, 48)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Brand.primary)
+                    Text(DocumentType.usPassport.rawValue)
+                        .font(.headline)
                 }
+                Text("2 x 2 in · 51 x 51 mm · square")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
             .background(Color(.secondarySystemBackground),
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            Text("This version checks US passport photos only. Other countries use different sizes and head-height rules, and aren't supported yet.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
 
@@ -64,5 +59,5 @@ struct DocumentTypeView: View {
 }
 
 #Preview {
-    DocumentTypeView(selected: .constant(.usPassport))
+    DocumentTypeView()
 }
