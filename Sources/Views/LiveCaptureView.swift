@@ -1,10 +1,14 @@
 import AVFoundation
 import CoreImage
 import SwiftUI
+import UIKit
 
 /// Live camera with real-time coaching. The oval turns green and the shutter unlocks only
-/// when the frame passes every check we can make without calibration, so people are guided
-/// to a good photo instead of judged after taking a bad one.
+/// when the frame passes every face check we can make without calibration, so people are
+/// guided to a good photo instead of judged after taking a bad one.
+///
+/// The background is measured live too, but it warns rather than locking the shutter —
+/// see `LiveGuidance.isReady` for why.
 struct LiveCaptureView: View {
     var onPhoto: (CIImage) -> Void
     var onFallback: () -> Void
@@ -36,6 +40,27 @@ struct LiveCaptureView: View {
         }
         .task { await coach.start() }
         .onDisappear { coach.stop() }
+        .onChange(of: spokenGuidance) { announce($0) }
+    }
+
+    /// The one line shown in the capsule at the top of the screen.
+    private var mainInstruction: String {
+        coach.hint ?? "Looks good — take the photo"
+    }
+
+    /// What VoiceOver says: the instruction plus, when it is showing separately as a chip,
+    /// the background warning — so a VoiceOver user hears the same two things a sighted
+    /// user sees, in one utterance rather than two competing ones.
+    private var spokenGuidance: String {
+        guard let warning = coach.secondaryWarning else { return mainInstruction }
+        return "\(mainInstruction). \(warning)"
+    }
+
+    /// VoiceOver only reads what changed if it is told to. Announcements are skipped when
+    /// VoiceOver is off so nothing is queued for a user who will never hear it.
+    private func announce(_ message: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: message)
     }
 
     private var cameraLayer: some View {
@@ -43,21 +68,40 @@ struct LiveCaptureView: View {
             CameraPreview(session: coach.session)
                 .ignoresSafeArea()
 
+            // The wall is checked while the user is still standing there, not after the
+            // shutter, so the warning has to be visible on this screen.
+            if coach.backgroundHint != nil {
+                BackgroundWarningWash()
+            }
+
             // The oval is where the head belongs. Green means every live check passes.
-            Ellipse()
-                .stroke(coach.isReady ? Color.green : Color.white.opacity(0.85),
-                        style: StrokeStyle(lineWidth: 3, dash: coach.isReady ? [] : [10, 8]))
-                .frame(width: 250, height: 330)
-                .animation(.easeInOut(duration: 0.2), value: coach.isReady)
+            FaceScanOverlay(isReady: coach.isReady)
 
             VStack {
-                Text(coach.hint ?? "Looks good — take the photo")
+                Text(mainInstruction)
                     .font(.headline)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .background(.black.opacity(0.55), in: Capsule())
                     .padding(.top, 24)
                     .animation(.easeInOut(duration: 0.15), value: coach.hint)
+                    // The whole point of this screen is coaching, which is useless to a
+                    // VoiceOver user who never hears the instruction change. SwiftUI has no
+                    // live-region equivalent, so changes are announced explicitly.
+                    .accessibilityAddTraits(.updatesFrequently)
+
+                // Only appears when the main line is busy with a face instruction —
+                // otherwise the background warning is already the main line.
+                if let warning = coach.secondaryWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(.orange.opacity(0.85), in: Capsule())
+                        .padding(.top, 8)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: warning)
+                }
 
                 Spacer()
 
@@ -74,6 +118,10 @@ struct LiveCaptureView: View {
                 }
                 .disabled(!coach.isReady)
                 .padding(.bottom, 12)
+                .accessibilityLabel("Take photo")
+                .accessibilityHint(coach.isReady
+                                   ? "Every live check passes"
+                                   : coach.hint ?? "Not ready yet")
 
                 // Never a dead end: coaching can fail in bad light or on an odd device.
                 Button("Choose from library instead") {
