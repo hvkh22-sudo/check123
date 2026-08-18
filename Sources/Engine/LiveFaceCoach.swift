@@ -11,6 +11,30 @@ import UniformTypeIdentifiers
 /// is nonisolated (an error, not a warning, under the Swift 6 language mode).
 private let liveBufferOrientation: CGImagePropertyOrientation = .leftMirrored
 
+/// Rate limiter owned by the capture queue.
+///
+/// Like `LiveBackgroundSampler`, this is only ever touched from the single serial capture
+/// queue, which is what makes the unsynchronised `lastRun` safe. Keeping the cadence here
+/// rather than behind a hop to the main actor matters: a frame that is not due is dropped
+/// before anything captures it, so it never holds a buffer from the capture pool.
+///
+/// Internal rather than private only so `FrameThrottleTests` can reach it. The cadence is what
+/// stands between this screen and a Vision call on every single frame, and its failure mode is
+/// invisible — the screen still works, it just janks on older phones — so it is worth pinning.
+final class FrameThrottle: @unchecked Sendable {
+    private let interval: TimeInterval
+    private var lastRun = Date.distantPast
+
+    init(interval: TimeInterval) { self.interval = interval }
+
+    /// True at most once per `interval`, and only then does the clock advance.
+    func due() -> Bool {
+        guard Date().timeIntervalSince(lastRun) >= interval else { return false }
+        lastRun = Date()
+        return true
+    }
+}
+
 /// Real-time coaching from the camera feed: runs the same Vision checks as the still-photo
 /// engine, several times a second, and publishes one short instruction at a time.
 ///
@@ -56,13 +80,17 @@ final class LiveFaceCoach: NSObject, ObservableObject {
 
     /// Vision on every frame is wasteful and makes hints flicker; a few times a second
     /// is faster than anyone can react to anyway.
-    private var lastAnalysis = Date.distantPast
-    private let analysisInterval: TimeInterval = 0.25
+    private nonisolated let faceThrottle = FrameThrottle(interval: 0.25)
 
     /// Background segmentation runs on the capture queue at its own slower cadence — see
     /// LiveBackgroundSampler for why it cannot share the face path. Declared `nonisolated`
     /// so the sample-buffer delegate can reach it without hopping to the main actor.
     private nonisolated let backgroundSampler = LiveBackgroundSampler()
+
+    /// Inputs and outputs may only be added once — adding them a second time fails and would
+    /// report the camera as broken. Suspending for the app switcher stops the session but
+    /// leaves it configured, so resuming is only `startRunning()`.
+    private var isConfigured = false
 
     // MARK: - Lifecycle
 
@@ -80,25 +108,37 @@ final class LiveFaceCoach: NSObject, ObservableObject {
             return
         }
 
-        guard configure() else { return }
+        if !isConfigured {
+            guard configure() else { return }
+            isConfigured = true
+        }
+
         let session = self.session
         await withCheckedContinuation { continuation in
             queue.async {
-                session.startRunning()
+                if !session.isRunning { session.startRunning() }
                 continuation.resume()
             }
         }
         status = .running
     }
 
+    /// Suspends capture. Called both when the screen closes and whenever the scene stops
+    /// being active — leaving the camera running behind the app switcher kept the capture
+    /// indicator lit and kept analysing frames the user had walked away from.
     func stop() {
         let session = self.session
-        queue.async { session.stopRunning() }
+        queue.async { if session.isRunning { session.stopRunning() } }
         // Otherwise a warning measured just before the screen closed is still on screen
         // for over a second the next time it opens, describing a wall that isn't there.
         faceHint = nil
         backgroundHint = nil
         isReady = false
+        // A shot that was still developing when the user left is abandoned rather than
+        // delivered to a screen that has gone away; without this the in-flight flag also
+        // stayed set and the shutter was dead for the rest of the session.
+        captureInFlight = false
+        photoHandler = nil
     }
 
     private func configure() -> Bool {
@@ -147,9 +187,16 @@ final class LiveFaceCoach: NSObject, ObservableObject {
 
     // MARK: - Guidance
 
-    // Frame orientation lives at file scope — see `liveBufferOrientation` below.
+    // Frame orientation lives at file scope — see `liveBufferOrientation` at the top of
+    // this file, and the note there on why it cannot be a static on this type.
 
-    fileprivate func analyze(_ pixelBuffer: CVPixelBuffer) {
+    /// Runs on the capture queue, synchronously inside the sample-buffer callback.
+    ///
+    /// `VNDetectFaceLandmarksRequest` is synchronous and expensive. On the main actor it
+    /// blocked the very screen it was driving — the oval, the sweep animation and the hint
+    /// capsule all render there — several times a second. Only the resulting strings hop to
+    /// the main actor now.
+    fileprivate nonisolated func analyze(_ pixelBuffer: CVPixelBuffer) {
         let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
                                             orientation: liveBufferOrientation,
@@ -157,7 +204,7 @@ final class LiveFaceCoach: NSObject, ObservableObject {
         try? handler.perform([request])
         let faces = request.results ?? []
 
-        let hint = guidance(for: faces)
+        let hint = Self.guidance(for: faces)
         Task { @MainActor in
             self.faceHint = hint
             self.isReady = LiveGuidance.isReady(faceHint: hint)
@@ -166,7 +213,12 @@ final class LiveFaceCoach: NSObject, ObservableObject {
 
     /// One instruction at a time, ordered by what blocks the shot most.
     /// Returns nil when the face itself passes every check we can make without calibration.
-    private func guidance(for faces: [VNFaceObservation]) -> String? {
+    ///
+    /// Static because it is called from the capture queue: it reads only `PassportRules`
+    /// constants and holds no state of its own. `nonisolated` for the reason given at the top
+    /// of this file — a static inside a `@MainActor` type inherits that isolation, so without
+    /// it this would be unreachable from the nonisolated sample-buffer path.
+    private nonisolated static func guidance(for faces: [VNFaceObservation]) -> String? {
         guard let face = faces.max(by: { $0.boundingBox.height < $1.boundingBox.height }) else {
             return "Put your face in the oval"
         }
@@ -217,11 +269,12 @@ extension LiveFaceCoach: AVCaptureVideoDataOutputSampleBufferDelegate {
             Task { @MainActor in self.backgroundHint = warning }
         }
 
-        Task { @MainActor in
-            guard Date().timeIntervalSince(self.lastAnalysis) >= self.analysisInterval else { return }
-            self.lastAnalysis = Date()
-            self.analyze(buffer)
-        }
+        // The cadence is checked here, on the capture queue, rather than after a hop to the
+        // main actor. A frame that is not due now costs one comparison and is released with
+        // the callback, instead of allocating a task that retains a capture-pool buffer
+        // until the main actor gets round to discarding it.
+        guard faceThrottle.due() else { return }
+        analyze(buffer)
     }
 }
 
