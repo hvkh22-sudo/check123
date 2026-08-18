@@ -40,6 +40,18 @@ struct LiveCaptureView: View {
         }
         .task { await coach.start() }
         .onDisappear { coach.stop() }
+        // The cover hides the preview, but hiding it is not the same as switching the camera
+        // off: without this the session kept running behind the app switcher, the capture
+        // indicator stayed lit, and Vision kept analysing a face the user had walked away
+        // from. `.onDisappear` does not fire for the app switcher, Control Centre or a call
+        // banner, so the scene phase has to drive it.
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await coach.start() }
+            } else {
+                coach.stop()
+            }
+        }
         .onChange(of: spokenGuidance) { announce($0) }
     }
 

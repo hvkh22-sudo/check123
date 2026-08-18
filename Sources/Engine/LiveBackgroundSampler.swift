@@ -16,7 +16,7 @@ import ImageIO
 final class LiveBackgroundSampler: @unchecked Sendable {
 
     enum Outcome {
-        /// Not due yet, or a previous pass is still running. Leave the last warning alone.
+        /// Not due yet, or the frame was unusable. Leave the last warning alone.
         case skipped
         /// A fresh measurement: the warning to show, or nil when the background is fine.
         case measured(String?)
@@ -24,13 +24,16 @@ final class LiveBackgroundSampler: @unchecked Sendable {
 
     /// Long enough that segmentation never queues up behind itself, short enough that a
     /// user who steps in front of a different wall is told within about a second.
+    ///
+    /// No re-entrancy guard is needed alongside it: `consider` runs synchronously and is
+    /// only ever called from the one serial capture queue, so a second pass cannot begin
+    /// while the first is still running.
     private let interval: TimeInterval
     /// Segmentation quality stops improving well before full camera resolution, and the
     /// cost scales with pixels, so the frame is shrunk to this longest edge first.
     private let targetLongestEdge: CGFloat
 
     private var lastRun = Date.distantPast
-    private var isRunning = false
 
     init(interval: TimeInterval = 1.2, targetLongestEdge: CGFloat = 320) {
         self.interval = interval
@@ -42,12 +45,7 @@ final class LiveBackgroundSampler: @unchecked Sendable {
     /// moment that callback returns, so the work cannot be deferred to another queue.
     func consider(_ pixelBuffer: CVPixelBuffer,
                   orientation: CGImagePropertyOrientation) -> Outcome {
-        guard !isRunning, Date().timeIntervalSince(lastRun) >= interval else { return .skipped }
-        isRunning = true
-        defer {
-            lastRun = Date()
-            isRunning = false
-        }
+        guard Date().timeIntervalSince(lastRun) >= interval else { return .skipped }
 
         // Orient first, then analyse as `.up`. BackgroundAnalyzer samples the mask and the
         // image in the same coordinate space, so handing it a rotated image with a mask
@@ -65,6 +63,10 @@ final class LiveBackgroundSampler: @unchecked Sendable {
             : oriented
 
         let result = BackgroundAnalyzer.analyze(frame)
+        // Advanced only once a measurement actually happened. Setting it on the unusable-frame
+        // path too meant a run of degenerate frames silently pushed the next real measurement
+        // out by a further interval each time.
+        lastRun = Date()
         return .measured(result.ok ? nil : result.message)
     }
 }
