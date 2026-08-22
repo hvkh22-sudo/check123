@@ -37,7 +37,29 @@ enum PassportRules {
     static let bgSaturationMax = 0.18
     /// Max luminance spread across the background before it reads as non-uniform (shadows,
     /// objects). Loosened for tiled/textured walls with visible grout lines.
+    ///
+    /// This measures a *gradient*, not an object. Standard deviation averages a localised
+    /// object into the wall around it: against a wall at 0.85, a black coat has to cover
+    /// 7.7% of the sampled background before this trips, a mid-grey bed rail 15.7%, and
+    /// anything at 0.50 luminance or lighter never trips it at any size. QA-002 on
+    /// 2026-08-23 hit exactly that — a hanging coat and a bed rail were both passed.
+    /// The outlier pair below is what catches objects; this stays for gradients.
     static let bgUniformityMax = 0.20
+
+    /// How far one background sample must sit from the background's median luminance
+    /// before it counts as "not the wall".
+    ///
+    /// Chosen to sit above wall texture and below real objects: grout lines and a gentle
+    /// lighting gradient stay inside 0.25, while a coat (~0.75 from a light wall), a dark
+    /// door frame or a bed rail fall well outside it. A deliberately low-contrast object —
+    /// a pale grey coat on an off-white wall — stays under this and is not caught; that
+    /// limit is real and is recorded rather than hidden.
+    static let bgOutlierDeviation = 0.25
+
+    /// Share of background samples allowed to be outliers before the background reads as
+    /// cluttered rather than plain. Small, because a passport background must be empty,
+    /// and because thin texture (grout, a seam) only ever hits a few grid points.
+    static let bgOutlierFractionMax = 0.04
 
     /// Whether a measured head-height percentage is inside the compliant green band.
     static func headHeightInBand(_ pct: Double) -> Bool {

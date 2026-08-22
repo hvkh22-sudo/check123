@@ -45,27 +45,88 @@ enum BackgroundAnalyzer {
                           luminance: nil)
         }
 
-        let brightEnough = stats.luminance >= PassportRules.bgLuminanceMin
-        let whiteEnough = stats.saturation <= PassportRules.bgSaturationMax
-        let uniform = stats.stdDev <= PassportRules.bgUniformityMax
+        return verdict(for: stats)
+    }
 
-        if brightEnough && whiteEnough && uniform {
+    /// Internal rather than private so the two decisions that actually reject a photo —
+    /// how the samples are reduced to a statistic, and which message that statistic earns —
+    /// can be tested without a camera. That is where the QA-002 false pass lived.
+    struct Stats {
+        let luminance: Double
+        let saturation: Double
+        /// Luminance spread across the whole background. Catches gradients and shadows.
+        let stdDev: Double
+        /// Share of samples sitting further than `bgOutlierDeviation` from the median.
+        /// Catches objects, which `stdDev` averages away.
+        let outlierFraction: Double
+    }
+
+    /// Reduces the sampled background luminances to the statistics the verdict is made on.
+    ///
+    /// The median, not the mean, anchors the outlier test: an object large enough to move
+    /// the mean towards itself would otherwise start hiding behind its own influence.
+    static func stats(luminances: [Double], meanSaturation: Double) -> Stats {
+        // The median below indexes directly, so an empty set would trap rather than produce
+        // a number. Reported as NaN, which `verdict` turns into a failure, never a pass.
+        guard !luminances.isEmpty else {
+            return Stats(luminance: .nan, saturation: .nan, stdDev: .nan, outlierFraction: .nan)
+        }
+
+        let n = Double(luminances.count)
+        let mean = luminances.reduce(0, +) / n
+        let variance = luminances.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / n
+
+        let sorted = luminances.sorted()
+        let median = sorted.count % 2 == 1
+            ? sorted[sorted.count / 2]
+            : (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2
+
+        let outliers = luminances.reduce(into: 0) { count, l in
+            if abs(l - median) > PassportRules.bgOutlierDeviation { count += 1 }
+        }
+
+        return Stats(luminance: mean,
+                     saturation: meanSaturation,
+                     stdDev: variance.squareRoot(),
+                     outlierFraction: Double(outliers) / n)
+    }
+
+    /// Turns the statistics into a pass/fail and the one line the user reads.
+    ///
+    /// The failing dimensions are ranked by how far past their own threshold they are,
+    /// rather than by a fixed order. Under the fixed order, "too dark" was checked first
+    /// and therefore masked every other reason: a bright but cluttered wall was told to
+    /// find more light, and the sentence about objects behind you could never be reached.
+    static func verdict(for stats: Stats) -> Result {
+        // A degenerate sample set produces NaN, and every comparison against NaN is false —
+        // which would have filtered out all four failures and returned a silent pass. Given
+        // that this whole function exists because of a false pass, it fails closed instead.
+        guard stats.luminance.isFinite, stats.saturation.isFinite,
+              stats.stdDev.isFinite, stats.outlierFraction.isFinite else {
+            return Result(ok: false,
+                          message: "Is the background a plain, light, shadow-free wall?",
+                          luminance: nil)
+        }
+
+        // Each margin is expressed as a fraction of its own threshold, so the four are
+        // comparable despite being measured in different units.
+        let failures: [(margin: Double, message: String)] = [
+            ((PassportRules.bgLuminanceMin - stats.luminance) / PassportRules.bgLuminanceMin,
+             "Background looks too dark — use a plain, light wall."),
+            ((stats.saturation - PassportRules.bgSaturationMax) / PassportRules.bgSaturationMax,
+             "Background has too much color — a plain white/off-white wall works best."),
+            ((stats.outlierFraction - PassportRules.bgOutlierFractionMax) / PassportRules.bgOutlierFractionMax,
+             "Something behind you is breaking up the wall — clear it, or move to an empty one."),
+            ((stats.stdDev - PassportRules.bgUniformityMax) / PassportRules.bgUniformityMax,
+             "Background isn't even — move away from shadows and bright patches.")
+        ].filter { $0.margin > 0 }
+
+        guard let worst = failures.max(by: { $0.margin < $1.margin }) else {
             return Result(ok: true, message: "Background looks plain and light.",
                           luminance: stats.luminance)
         }
-
-        let reason: String
-        if !brightEnough {
-            reason = "Background looks too dark — use a plain, light wall."
-        } else if !whiteEnough {
-            reason = "Background has too much color — a plain white/off-white wall works best."
-        } else {
-            reason = "Background isn't uniform — remove shadows and objects behind you."
-        }
-        return Result(ok: false, message: reason, luminance: stats.luminance)
+        return Result(ok: false, message: worst.message, luminance: stats.luminance)
     }
-
-    private struct Stats { let luminance: Double; let saturation: Double; let stdDev: Double }
 
     /// Samples a grid of points, keeps those the mask marks as background, and returns
     /// mean luminance, mean saturation, and luminance spread (uniformity).
@@ -117,9 +178,6 @@ enum BackgroundAnalyzer {
         }
 
         guard lums.count >= 20 else { return nil }   // too little background visible
-        let mean = lums.reduce(0, +) / Double(lums.count)
-        let variance = lums.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lums.count)
-        return Stats(luminance: mean, saturation: satSum / Double(lums.count),
-                     stdDev: variance.squareRoot())
+        return stats(luminances: lums, meanSaturation: satSum / Double(lums.count))
     }
 }
