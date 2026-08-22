@@ -2,8 +2,14 @@ import SwiftUI
 import CoreImage
 import UIKit
 
-/// Screen 6 — export / paywall. Free watermarked preview; one-time purchase to export clean.
-/// Real StoreKit purchase is wired later; for now "unlock" is a placeholder that reveals the export.
+/// Screen 6 — export / paywall.
+///
+/// The preview is free and is **not** watermarked; what the one-time non-consumable purchase
+/// unlocks is the Save / Share control itself, which is absent until then rather than disabled.
+///
+/// This is a real StoreKit 2 purchase. An earlier version of this comment called the unlock a
+/// placeholder to be wired up later, which was true once and would now read as an invitation to
+/// delete the paywall.
 struct ExportView: View {
     /// The captured photo and the guide positions. The crop is performed HERE, in the view
     /// that shows it — earlier it was computed a screen back and threaded through @State,
@@ -22,6 +28,14 @@ struct ExportView: View {
     @State private var preparing = true
 
     private var unlocked: Bool { store.purchased }
+
+    /// Omits the price entirely when the real product has not loaded, rather than quoting a
+    /// currency the customer may not be paying in.
+    private var purchaseButtonTitle: String {
+        if isPurchasing { return "Contacting the App Store…" }
+        guard let price = store.priceText else { return "Unlock & export" }
+        return "Unlock & export — \(price)"
+    }
 
     /// Crops the passport image off the main thread (the render is heavy GPU→CPU work),
     /// retrying a couple of times — createCGImage can fail transiently under memory pressure
@@ -124,7 +138,7 @@ struct ExportView: View {
                         isPurchasing = false
                     }
                 } label: {
-                    Text(isPurchasing ? "Contacting the App Store…" : "Unlock & export — \(store.priceText)")
+                    Text(purchaseButtonTitle)
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -160,8 +174,13 @@ struct ExportView: View {
         .navigationTitle("Export")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // Loading the product used to be sequenced behind `prepare()`, which is a
+            // multi-second render with retries. Until it finished, `store.purchased` was
+            // still false, so an existing owner was shown the paywall for something they had
+            // already bought. Entitlement is not downstream of image rendering.
+            async let entitlement: Void = store.load()
             await prepare()
-            await store.load()
+            await entitlement
         }
         .onDisappear {
             renderedImage = nil
