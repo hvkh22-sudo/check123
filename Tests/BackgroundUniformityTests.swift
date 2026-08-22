@@ -2,134 +2,201 @@ import XCTest
 @testable import PassCheck
 
 /// QA-002 on 2026-08-23 found the one failure that costs a user a rejected passport
-/// application: a photo with a coat hanging behind the head, and a bed rail, was returned as
-/// a *verified pass*. These pin the statistic that let it through, and the statistic that
-/// catches it now.
+/// application: a photo with a coat hanging behind the head, and a bed rail in frame, came
+/// back as a *verified pass*.
 ///
-/// Everything here runs on synthetic sample arrays rather than photos, so the decision that
-/// actually rejects a photo is testable on a machine with no camera.
+/// A first fix caught that particular coat and was then reviewed adversarially, which found
+/// it caught little else — a beige door filling 40% of the wall still passed, and colour was
+/// left on a plain mean with the identical averaging flaw. These tests pin the cases that
+/// review produced, each one an input that used to pass and must not.
+///
+/// Everything runs on synthetic sample sets, so the decision that actually rejects a photo is
+/// testable on a machine with no camera.
 final class BackgroundUniformityTests: XCTestCase {
 
-    /// Builds a background sample set: `fraction` of the samples at `luminance`, the rest
-    /// at `wall`.
-    private func samples(wall: Double,
-                         object luminance: Double,
-                         covering fraction: Double,
-                         count: Int = 1000) -> [Double] {
+    private let wall = BackgroundAnalyzer.Sample(r: 0.86, g: 0.85, b: 0.84)
+
+    /// `fraction` of the samples are the object, the rest are the wall.
+    private func background(object: BackgroundAnalyzer.Sample,
+                            covering fraction: Double,
+                            wall: BackgroundAnalyzer.Sample? = nil,
+                            count: Int = 1000) -> [BackgroundAnalyzer.Sample] {
         let objectCount = Int((Double(count) * fraction).rounded())
-        return Array(repeating: luminance, count: objectCount)
-             + Array(repeating: wall, count: count - objectCount)
+        return Array(repeating: object, count: objectCount)
+             + Array(repeating: wall ?? self.wall, count: count - objectCount)
     }
 
-    private func stats(_ lums: [Double], saturation: Double = 0.05) -> BackgroundAnalyzer.Stats {
-        BackgroundAnalyzer.stats(luminances: lums, meanSaturation: saturation)
+    /// An evenly lit wall, or an unevenly lit one: luminance ramps across `range`.
+    private func gradient(center: Double, range: Double,
+                          count: Int = 1000) -> [BackgroundAnalyzer.Sample] {
+        (0..<count).map { i in
+            let v = center + (Double(i) / Double(count - 1) - 0.5) * range
+            return BackgroundAnalyzer.Sample(r: v, g: v, b: v * 0.99)
+        }
     }
 
-    // MARK: - The regression
+    private func verdict(_ samples: [BackgroundAnalyzer.Sample]) -> BackgroundAnalyzer.Result {
+        BackgroundAnalyzer.verdict(for: BackgroundAnalyzer.stats(samples: samples))
+    }
 
-    /// The exact shape of the QA-002 failure: a dark coat against a light wall, covering a
-    /// realistic share of the visible background.
+    // MARK: - Backgrounds that used to pass and must not
+
+    /// The original QA-002 photo: a dark coat hanging behind the head.
     func testHangingCoatIsRejected() {
-        let s = stats(samples(wall: 0.85, object: 0.10, covering: 0.06))
-        let result = BackgroundAnalyzer.verdict(for: s)
-
-        XCTAssertFalse(result.ok, "A coat covering 6% of the background must not pass.")
-        XCTAssertTrue(result.message.contains("behind you"),
-                      "Got: \(result.message)")
-    }
-
-    /// Why it passed before: standard deviation averages a localised object into the wall
-    /// around it. This asserts the old statistic on the same samples, so the regression can
-    /// never be reintroduced by "simplifying" back to a single spread measure.
-    func testStandardDeviationAloneWouldHavePassedTheCoat() {
-        let s = stats(samples(wall: 0.85, object: 0.10, covering: 0.06))
+        let s = BackgroundAnalyzer.stats(samples: background(
+            object: .init(r: 0.10, g: 0.10, b: 0.11), covering: 0.06))
 
         XCTAssertLessThanOrEqual(s.stdDev, PassportRules.bgUniformityMax,
                                  "The coat stays inside the spread threshold — that was the bug.")
-        XCTAssertGreaterThan(s.outlierFraction, PassportRules.bgOutlierFractionMax,
-                             "The outlier share is what has to catch it instead.")
+        let result = BackgroundAnalyzer.verdict(for: s)
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.message.contains("isn't plain"), "Got: \(result.message)")
     }
 
-    /// The worst case of the old statistic: anything at 0.50 luminance or lighter could not
-    /// trip the spread threshold at *any* coverage, so a pale object was invisible to it.
-    func testMidToneObjectIsCaughtEvenAtLargeCoverage() {
-        let s = stats(samples(wall: 0.85, object: 0.55, covering: 0.20))
+    /// The same coat, mostly hidden behind the head so only a sliver shows. The first fix
+    /// used a 4% budget and let this through; the coverage a partly occluded object produces
+    /// is exactly the range that matters.
+    func testCoatSliverIsRejected() {
+        let result = verdict(background(object: .init(r: 0.10, g: 0.10, b: 0.11),
+                                        covering: 0.025))
+        XCTAssertFalse(result.ok, "A 2.5% sliver of a black coat must not pass.")
+    }
+
+    /// A beige door, a cream curtain, a light wooden rail: far enough from the wall to be
+    /// obvious to a human, close enough that a fixed deviation band missed it at *any* size.
+    func testMidToneObjectIsRejectedEvenThoughItIsCloseToTheWall() {
+        let s = BackgroundAnalyzer.stats(samples: background(
+            object: .init(r: 0.66, g: 0.64, b: 0.60), covering: 0.40))
 
         XCTAssertLessThanOrEqual(s.stdDev, PassportRules.bgUniformityMax,
-                                 "Spread alone never sees this one, at any size.")
+                                 "Spread cannot see this: two populations 0.23 apart never reach 0.20.")
+        XCTAssertGreaterThan(s.luminance, PassportRules.bgLuminanceMin,
+                             "Nor is it dark enough to fail on brightness.")
+        XCTAssertFalse(BackgroundAnalyzer.verdict(for: s).ok,
+                       "A door covering 40% of the wall must not pass.")
+    }
+
+    /// Colour had the same averaging flaw as spread, and the first fix left it there: a pink
+    /// curtain over 30% of the background averages down to a mean saturation well under the
+    /// threshold. Deviation is measured per channel now, so it no longer hides.
+    func testColouredObjectIsRejectedDespiteAcceptableMeanSaturation() {
+        let s = BackgroundAnalyzer.stats(samples: background(
+            object: .init(r: 0.95, g: 0.65, b: 0.65), covering: 0.30))
+
+        XCTAssertLessThanOrEqual(s.saturation, PassportRules.bgSaturationMax,
+                                 "The mean says this background is white enough. It is 30% pink.")
         XCTAssertFalse(BackgroundAnalyzer.verdict(for: s).ok)
     }
 
-    // MARK: - What must still pass
+    /// A wardrobe or an open doorway filling half the frame. With an interpolated median the
+    /// anchor lands in the empty space between the two populations and neither is an outlier.
+    func testBackgroundSplitInHalfIsRejected() {
+        let result = verdict(background(object: .init(r: 0.53, g: 0.52, b: 0.51),
+                                        covering: 0.50,
+                                        wall: BackgroundAnalyzer.Sample(r: 0.91, g: 0.90, b: 0.89)))
+        XCTAssertFalse(result.ok, "Half wall, half object must not read as plain.")
+    }
+
+    /// A shadow the subject casts on the wall beside their own head.
+    func testCastShadowIsRejected() {
+        let result = verdict(background(object: .init(r: 0.46, g: 0.45, b: 0.44),
+                                        covering: 0.12))
+        XCTAssertFalse(result.ok)
+    }
+
+    // MARK: - Backgrounds that must still pass
 
     func testPlainWallPasses() {
-        let result = BackgroundAnalyzer.verdict(for: stats(Array(repeating: 0.85, count: 1000)))
+        let result = verdict(Array(repeating: wall, count: 1000))
         XCTAssertTrue(result.ok)
         XCTAssertEqual(result.message, "Background looks plain and light.")
     }
 
-    /// Grout lines and wall texture sit close to the wall's own luminance. They must stay
-    /// inside the outlier band — the spread threshold was loosened for exactly these, and
-    /// the new check must not undo that.
-    func testTexturedWallWithGroutLinesStillPasses() {
-        let s = stats(samples(wall: 0.85, object: 0.65, covering: 0.10))
-        XCTAssertLessThanOrEqual(s.outlierFraction, PassportRules.bgOutlierFractionMax)
-        XCTAssertTrue(BackgroundAnalyzer.verdict(for: s).ok)
+    /// Ordinary indoor light falls off across a wall. Because the band scales with how
+    /// varied the wall already is, a smooth ramp does not read as an object.
+    func testEvenlyRampedLightingPasses() {
+        let result = verdict(gradient(center: 0.82, range: 0.52))
+        XCTAssertTrue(result.ok, "A lit-from-one-side wall must not be called cluttered. Got: \(result.message)")
     }
 
-    /// A background can be empty and still be too dark. That verdict must survive.
+    /// A light switch or socket is small. It must not condemn the photo.
+    func testSmallFixtureOnTheWallPasses() {
+        let result = verdict(background(object: .init(r: 0.55, g: 0.55, b: 0.55),
+                                        covering: 0.01))
+        XCTAssertTrue(result.ok, "Got: \(result.message)")
+    }
+
+    // MARK: - The message the user reads
+
+    /// The uneven-lighting sentence must be reachable. In the first fix it was not: the
+    /// outlier margin outranked it in every case that could occur, so one unreachable
+    /// message had simply replaced another.
+    func testWideUnevenLightingReportsLightingNotClutter() {
+        let result = verdict(gradient(center: 0.70, range: 0.80))
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.message.contains("Lighting"), "Got: \(result.message)")
+    }
+
     func testUniformlyDarkWallStillReportsDarkness() {
-        let result = BackgroundAnalyzer.verdict(for: stats(Array(repeating: 0.40, count: 1000)))
+        let result = verdict(Array(repeating: .init(r: 0.41, g: 0.40, b: 0.39), count: 1000))
         XCTAssertFalse(result.ok)
         XCTAssertTrue(result.message.contains("too dark"), "Got: \(result.message)")
     }
 
     func testColouredWallStillReportsColour() {
-        let s = stats(Array(repeating: 0.80, count: 1000), saturation: 0.45)
-        let result = BackgroundAnalyzer.verdict(for: s)
+        let result = verdict(Array(repeating: .init(r: 0.86, g: 0.55, b: 0.52), count: 1000))
         XCTAssertFalse(result.ok)
         XCTAssertTrue(result.message.contains("too much color"), "Got: \(result.message)")
     }
 
-    /// A strong lighting gradient is a global problem, not an object. It must still fail;
-    /// which of the two "not plain" sentences it earns is not pinned, because the samples
-    /// carry no position and a gradient cannot be told from a large object without one.
-    func testStrongGradientStillFails() {
-        let gradient = (0..<1000).map { 0.20 + (Double($0) / 999.0) * 0.80 }
-        XCTAssertFalse(BackgroundAnalyzer.verdict(for: stats(gradient)).ok)
+    // MARK: - The statistic itself
+
+    /// The one design decision the implementation comment singles out. A large object drags
+    /// the mean towards itself until the wall is as far from the mean as the object is, and
+    /// then nothing is an outlier at all. Anchoring on the median keeps the wall as the
+    /// reference. At 45% coverage the two anchors disagree completely: 0% against 45%.
+    func testMedianAnchorSurvivesAnObjectLargeEnoughToMoveTheMean() {
+        let samples = background(object: .init(r: 0.51, g: 0.50, b: 0.49),
+                                 covering: 0.45,
+                                 wall: BackgroundAnalyzer.Sample(r: 0.91, g: 0.90, b: 0.89))
+        let s = BackgroundAnalyzer.stats(samples: samples)
+
+        // What a mean anchor would have produced, computed here rather than assumed.
+        let n = Double(samples.count)
+        let meanL = samples.reduce(0) { $0 + $1.luminance } / n
+        let meanR = samples.reduce(0) { $0 + $1.r } / n
+        let meanG = samples.reduce(0) { $0 + $1.g } / n
+        let meanB = samples.reduce(0) { $0 + $1.b } / n
+        let meanAnchored = samples.filter {
+            max(abs($0.luminance - meanL), abs($0.r - meanR), abs($0.g - meanG), abs($0.b - meanB))
+                > s.outlierThreshold
+        }.count
+
+        XCTAssertEqual(meanAnchored, 0, "A mean anchor sees nothing here — that is the point.")
+        XCTAssertGreaterThan(s.outlierFraction, 0.4)
+        XCTAssertFalse(BackgroundAnalyzer.verdict(for: s).ok)
     }
 
-    // MARK: - The message the user reads
+    /// For an even count the lower median must be a value that occurs in the image, not the
+    /// midpoint between the two central ones.
+    func testLowerMedianReturnsAnObservedValue() {
+        XCTAssertEqual(BackgroundAnalyzer.lowerMedian([0.2, 0.4, 0.6, 0.8]), 0.4, accuracy: 1e-12)
+        XCTAssertEqual(BackgroundAnalyzer.lowerMedian([0.5, 0.1, 0.9]), 0.5, accuracy: 1e-12)
+    }
 
-    /// QA-B1: "too dark" was checked first and therefore masked every other reason, so the
-    /// sentence about objects behind you was unreachable whenever brightness also failed.
-    /// A dim *and* cluttered background must now name the clutter, which is the thing the
-    /// user can actually act on.
-    func testClutterOutranksDarknessWhenBothFail() {
-        let s = stats(samples(wall: 0.70, object: 0.05, covering: 0.15))
-        let result = BackgroundAnalyzer.verdict(for: s)
-
-        XCTAssertLessThan(s.luminance, PassportRules.bgLuminanceMin,
-                          "This background is genuinely dim as well — that is the point.")
+    /// A degenerate sample set makes every statistic NaN, and every comparison against NaN is
+    /// false — which would filter out all four failure checks and read as a plain background.
+    func testDegenerateSamplesNeverReadAsPlain() {
+        let result = BackgroundAnalyzer.verdict(for: BackgroundAnalyzer.stats(samples: []))
         XCTAssertFalse(result.ok)
-        XCTAssertTrue(result.message.contains("behind you"),
-                      "Darkness masked the actionable reason. Got: \(result.message)")
+        XCTAssertNil(result.luminance, "A nil measurement is what tells the caller it is unknown.")
     }
 
-    /// A degenerate sample set makes every statistic NaN, and every comparison against NaN
-    /// is false — which would have filtered out all four failure checks and returned a
-    /// silent pass. It must fail closed instead.
-    func testDegenerateSamplesFailClosed() {
-        let result = BackgroundAnalyzer.verdict(for: stats([]))
-        XCTAssertFalse(result.ok, "NaN statistics must never read as a plain background.")
-        XCTAssertNil(result.luminance)
-    }
-
-    /// The median, not the mean, anchors the outlier test: an object large enough to drag
-    /// the mean toward itself would otherwise start hiding behind its own influence.
-    func testMedianAnchorsTheOutlierTest() {
-        let s = stats(samples(wall: 0.90, object: 0.10, covering: 0.30))
-        XCTAssertGreaterThan(s.outlierFraction, 0.25,
-                             "A large object must still register as outliers, not move the anchor.")
+    /// The sample-count floor and the outlier budget have to agree: a 2% budget over 20
+    /// samples tolerates no outlier at all, which would make a single mask-edge pixel fatal.
+    func testSampleFloorIsLargeEnoughForTheOutlierBudgetToMeanAnything() {
+        XCTAssertGreaterThanOrEqual(
+            Double(PassportRules.bgMinBackgroundSamples) * PassportRules.bgOutlierFractionMax, 1.0,
+            "Below one whole sample, the budget is a coin flip rather than a tolerance.")
     }
 }
