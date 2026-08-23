@@ -157,8 +157,8 @@ final class BackgroundUniformityTests: XCTestCase {
     /// the least certain of the four: it leans on a person mask, on a threshold not yet
     /// calibrated against real photographs, and it cannot tell an object from a shadow.
     func testNotPlainAdvisesRatherThanBlocks() {
-        let cluttered = BackgroundAnalyzer.verdict(for: stats(
-            samples(object: .init(r: 0.10, g: 0.10, b: 0.11), covering: 0.06)))
+        let cluttered = verdict(background(object: .init(r: 0.10, g: 0.10, b: 0.11),
+                                           covering: 0.06))
 
         XCTAssertFalse(cluttered.ok, "The finding itself does not soften.")
         XCTAssertEqual(cluttered.reason, .notPlain)
@@ -171,13 +171,11 @@ final class BackgroundUniformityTests: XCTestCase {
     /// Brightness and colour keep their authority. They are means over the whole background
     /// and they behave predictably, so a wall that is genuinely too dark still stops the flow.
     func testBrightnessAndColourStillBlock() {
-        let dark = BackgroundAnalyzer.verdict(for: stats(
-            Array(repeating: .init(r: 0.41, g: 0.40, b: 0.39), count: 1000)))
+        let dark = verdict(Array(repeating: .init(r: 0.41, g: 0.40, b: 0.39), count: 1000))
         XCTAssertEqual(dark.reason, .tooDark)
         XCTAssertEqual(VisionComplianceEngine.backgroundStatus(for: dark.reason), .verifiedFail)
 
-        let coloured = BackgroundAnalyzer.verdict(for: stats(
-            Array(repeating: .init(r: 0.86, g: 0.55, b: 0.52), count: 1000)))
+        let coloured = verdict(Array(repeating: .init(r: 0.86, g: 0.55, b: 0.52), count: 1000))
         XCTAssertEqual(coloured.reason, .tooColoured)
         XCTAssertEqual(VisionComplianceEngine.backgroundStatus(for: coloured.reason), .verifiedFail)
     }
@@ -185,11 +183,11 @@ final class BackgroundUniformityTests: XCTestCase {
     /// A plain wall passes outright, and an unmeasurable one asks rather than either passing
     /// or blocking.
     func testPlainPassesAndUnmeasurableAsks() {
-        let plain = BackgroundAnalyzer.verdict(for: stats(Array(repeating: wall, count: 1000)))
+        let plain = verdict(Array(repeating: wall, count: 1000))
         XCTAssertEqual(plain.reason, .plain)
         XCTAssertEqual(VisionComplianceEngine.backgroundStatus(for: plain.reason), .verifiedPass)
 
-        let unknown = BackgroundAnalyzer.verdict(for: stats([]))
+        let unknown = verdict([])
         XCTAssertEqual(unknown.reason, .couldNotMeasure)
         XCTAssertEqual(VisionComplianceEngine.backgroundStatus(for: unknown.reason), .confirm)
     }
