@@ -116,15 +116,29 @@ jobs:
           fi
           echo "Private key parses OK."
           export ASC_KEY_PATH="$PWD/asc_key.p8"
-          bundle exec fastlane beta > fl.log 2>&1
-          code=$?
-          if [ "$code" -ne 0 ]; then
+          # `if !` rather than a bare call: GitHub runs this step as `bash -e`, and the
+          # script's own `set -uo pipefail` does not clear that. A bare failing command
+          # therefore killed the shell here before `code=$?` was ever read, so the whole
+          # categorisation below — written precisely for a failed upload — was unreachable,
+          # and a real failure surfaced as a bare "exit code 1" with nothing to act on.
+          if ! bundle exec fastlane beta > fl.log 2>&1; then
             category="unknown"
             grep -qiE 'certificate.*(limit|maximum)|reached the maximum' fl.log && category="certificate-limit"
             grep -qiE 'provisioning profile|no profiles for' fl.log && category="provisioning-profile"
             grep -qiE 'validation failed|ERROR ITMS' fl.log && category="app-store-validation"
-            grep -qiE 'authentication|unauthorized|forbidden' fl.log && category="authentication"
+            grep -qiE 'authentication|unauthorized|forbidden|401|403' fl.log && category="authentication"
+            grep -qiE 'scheme .* not found|does not contain a scheme|xcodebuild: error' fl.log && category="xcode-scheme-or-build"
+            grep -qiE 'bundle identifier .* does not exist|BundleId' fl.log && category="bundle-id"
+            grep -qiE 'build number|already been used|redundant binary' fl.log && category="build-number"
+            grep -qiE 'could not find gem|bundler|LoadError|SyntaxError' fl.log && category="ruby-or-fastlane-startup"
             echo "::error::Fastlane failed (category: ${category}). Raw output was withheld from the public Actions log."
-            exit "$code"
+
+            # The categories above are guesses against a log nobody can read. These two lines
+            # are the shape of the failure rather than its content: where it stopped and how
+            # big the log got. Neither can carry a key, and together they separate "fastlane
+            # never started" from "it ran for two minutes and Apple rejected the binary".
+            echo "::error::fastlane produced $(wc -l < fl.log | tr -d ' ') log lines before failing."
+            echo "::error::Last fastlane action reached: $(grep -oE '^\[[0-9:]+\]: [-]+ Step: [a-z_]+ [-]+' fl.log | tail -1 | grep -oE 'Step: [a-z_]+' || echo 'none - fastlane did not reach its first step')"
+            exit 1
           fi
           echo "Fastlane completed successfully."
