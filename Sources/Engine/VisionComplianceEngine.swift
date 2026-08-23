@@ -8,6 +8,31 @@ import CoreImage
 /// Thresholds are initial guesses to CALIBRATE on a real device against a labeled sample set.
 struct VisionComplianceEngine: ComplianceEngine {
 
+    /// Grades a background finding by how much the measurement can be trusted.
+    ///
+    /// A hard failure blocks the export — `ComplianceReviewView` disables its button while any
+    /// rule is a verified failure, deliberately, because an honest checker cannot sell an
+    /// export for a photo it has just called non-compliant. Brightness and colour earn that:
+    /// they are means over the whole background and they behave predictably.
+    ///
+    /// "Not plain" does not, and a real device showed why. It leans on a person mask, on a
+    /// threshold not yet calibrated against real photographs, and it cannot tell an object
+    /// from the subject's own shadow. On 2026-08-23 it correctly spotted a shadow on the
+    /// owner's wall — and left him unable to continue in his own home, in an app whose live
+    /// camera screen already treats the very same measurement as advice rather than a lock.
+    /// It is advice here too now: the report still states the finding plainly, and the person
+    /// holding the phone decides whether to retake.
+    static func backgroundStatus(for reason: BackgroundAnalyzer.Reason) -> RuleStatus {
+        switch reason {
+        case .plain:
+            return .verifiedPass
+        case .tooDark, .tooColoured:
+            return .verifiedFail
+        case .notPlain, .unevenLighting, .couldNotMeasure:
+            return .confirm
+        }
+    }
+
     /// Decides the head-tilt rule from the angles Vision reported.
     ///
     /// Pure and internal so the "not measured" path is testable without a camera. That path
@@ -136,7 +161,7 @@ struct VisionComplianceEngine: ComplianceEngine {
         let bg = BackgroundAnalyzer.analyze(image, cancellation: cancellation)
         results.append(RuleResult(
             id: "bg.plain",
-            status: bg.luminance == nil ? .confirm : (bg.ok ? .verifiedPass : .verifiedFail),
+            status: Self.backgroundStatus(for: bg.reason),
             measured: bg.luminance.map { $0 * 100 }, unit: bg.luminance == nil ? nil : "%",
             message: bg.message))
 

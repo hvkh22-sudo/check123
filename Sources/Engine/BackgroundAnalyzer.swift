@@ -10,11 +10,30 @@ import Vision
 /// like the wall at all.
 enum BackgroundAnalyzer {
 
+    /// Which dimension decided the verdict.
+    ///
+    /// The caller needs this because the four are not equally trustworthy. Brightness and
+    /// colour are means over the whole background and behave predictably. Whether the wall is
+    /// *plain* leans on a person mask, on a threshold that is still uncalibrated against real
+    /// photographs, and it cannot tell an object from the subject's own shadow. Presenting
+    /// those two with the same authority was what left a user in an ordinary room unable to
+    /// go on: the app was right that a shadow was there, and being right is not the same as
+    /// being certain enough to stop someone.
+    enum Reason {
+        case plain
+        case tooDark
+        case tooColoured
+        case notPlain
+        case unevenLighting
+        case couldNotMeasure
+    }
+
     struct Result {
         let ok: Bool
         let message: String
         /// Mean background luminance, 0–1, for display/tuning. Nil when it couldn't run.
         let luminance: Double?
+        let reason: Reason
     }
 
     static func analyze(
@@ -27,23 +46,25 @@ enum BackgroundAnalyzer {
         cancellation?.register(req)
 
         guard !Task.isCancelled else {
-            return Result(ok: false, message: "Photo checking was cancelled.", luminance: nil)
+            return Result(ok: false, message: "Photo checking was cancelled.",
+                          luminance: nil, reason: .couldNotMeasure)
         }
 
         let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [:])
         guard (try? handler.perform([req])) != nil,
               let mask = req.results?.first?.pixelBuffer else {
             if Task.isCancelled {
-                return Result(ok: false, message: "Photo checking was cancelled.", luminance: nil)
+                return Result(ok: false, message: "Photo checking was cancelled.",
+                          luminance: nil, reason: .couldNotMeasure)
             }
             // Segmentation unavailable (older device / failure) — fall back to asking.
             return Result(ok: false, message: "Is the background a plain, light, shadow-free wall?",
-                          luminance: nil)
+                          luminance: nil, reason: .couldNotMeasure)
         }
 
         guard let stats = sampleBackground(image: image, mask: mask) else {
             return Result(ok: false, message: "Is the background a plain, light, shadow-free wall?",
-                          luminance: nil)
+                          luminance: nil, reason: .couldNotMeasure)
         }
 
         return verdict(for: stats)
@@ -151,27 +172,28 @@ enum BackgroundAnalyzer {
               stats.stdDev.isFinite, stats.outlierFraction.isFinite else {
             return Result(ok: false,
                           message: "Is the background a plain, light, shadow-free wall?",
-                          luminance: nil)
+                          luminance: nil, reason: .couldNotMeasure)
         }
 
         // Each margin is a fraction of its own threshold, so the four rank by relative
         // severity rather than by absolute units.
-        let failures: [(margin: Double, message: String)] = [
+        let failures: [(margin: Double, message: String, reason: Reason)] = [
             ((PassportRules.bgLuminanceMin - stats.luminance) / PassportRules.bgLuminanceMin,
-             "Background looks too dark — use a plain, light wall."),
+             "Background looks too dark — use a plain, light wall.", .tooDark),
             ((stats.saturation - PassportRules.bgSaturationMax) / PassportRules.bgSaturationMax,
-             "Background has too much color — a plain white/off-white wall works best."),
+             "Background has too much color — a plain white/off-white wall works best.", .tooColoured),
             ((stats.outlierFraction - PassportRules.bgOutlierFractionMax) / PassportRules.bgOutlierFractionMax,
-             "Background isn't plain — something is behind you, or a shadow is on the wall."),
+             "Background isn't plain — something is behind you, or a shadow is on the wall.", .notPlain),
             ((stats.stdDev - PassportRules.bgUniformityMax) / PassportRules.bgUniformityMax,
-             "Lighting on the wall is uneven — move to a flatter light.")
+             "Lighting on the wall is uneven — move to a flatter light.", .unevenLighting)
         ].filter { $0.margin > 0 }
 
         guard let worst = failures.max(by: { $0.margin < $1.margin }) else {
             return Result(ok: true, message: "Background looks plain and light.",
-                          luminance: stats.luminance)
+                          luminance: stats.luminance, reason: .plain)
         }
-        return Result(ok: false, message: worst.message, luminance: stats.luminance)
+        return Result(ok: false, message: worst.message,
+                      luminance: stats.luminance, reason: worst.reason)
     }
 
     /// Samples a grid of points and keeps those the mask marks as background.
