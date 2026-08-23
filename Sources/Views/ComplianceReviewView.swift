@@ -38,10 +38,12 @@ struct ComplianceReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             // An honest checker cannot sell an export for a photo it just told you is
-            // wrong. A hard ✗ stops here; retaking is free, the export is not.
+            // wrong. A hard ✗ stops here; retaking is free, the export is not. An advisory
+            // finding does not stop the user — but the button says "anyway", so going on is
+            // a choice they make rather than an approval the app hands them.
             VStack(spacing: 6) {
                 Button(action: onContinue) {
-                    Text(failed.isEmpty ? "Looks good — export" : "Fix the items above first")
+                    Text(continueTitle)
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -60,27 +62,68 @@ struct ComplianceReviewView: View {
     }
 
     /// One-glance summary at the top: how many automatic checks passed, and what's blocking.
+    private var continueTitle: String {
+        switch report.reviewVerdict {
+        case .blocked: return "Fix the items above first"
+        case .advisory: return "Export anyway"
+        case .clean: return "Looks good — export"
+        }
+    }
+
     private var verdictBanner: some View {
         let passed = verified.count
         let total = verified.count + failed.count
-        let blocking = failed.count
         return VStack(spacing: 8) {
-            Image(systemName: blocking == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+            Image(systemName: bannerSymbol)
                 .font(.system(size: 40))
-                .foregroundStyle(blocking == 0 ? .green : .orange)
-            Text(blocking == 0 ? "Passed every automatic check"
-                               : "\(blocking) \(blocking == 1 ? "item needs" : "items need") fixing")
+                .foregroundStyle(bannerTint)
+            Text(bannerHeadline)
                 .font(.title3.bold())
                 .multilineTextAlignment(.center)
-            Text(blocking == 0
-                 ? "\(passed) of \(total) on-device checks passed. Confirm the manual items below, then set head size."
-                 : "Fix the item\(blocking == 1 ? "" : "s") under “Fix these”, then retake — checks are free.")
+            Text(bannerDetail(passed: passed, total: total))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
+    }
+
+    private var bannerSymbol: String {
+        switch report.reviewVerdict {
+        case .blocked: return "exclamationmark.triangle.fill"
+        case .advisory: return "exclamationmark.circle.fill"
+        case .clean: return "checkmark.seal.fill"
+        }
+    }
+
+    private var bannerTint: Color {
+        switch report.reviewVerdict {
+        case .blocked, .advisory: return .orange
+        case .clean: return .green
+        }
+    }
+
+    private var bannerHeadline: String {
+        switch report.reviewVerdict {
+        case .blocked(let count):
+            return "\(count) \(count == 1 ? "item needs" : "items need") fixing"
+        case .advisory(let count):
+            return count == 1 ? "One thing to look at" : "\(count) things to look at"
+        case .clean:
+            return "Passed every automatic check"
+        }
+    }
+
+    private func bannerDetail(passed: Int, total: Int) -> String {
+        switch report.reviewVerdict {
+        case .blocked(let count):
+            return "Fix the item\(count == 1 ? "" : "s") under “Fix these”, then retake — checks are free."
+        case .advisory:
+            return "Your phone found this but can't be certain about it. Read it below — retaking is free."
+        case .clean:
+            return "\(passed) of \(total) on-device checks passed. Confirm the manual items below, then set head size."
+        }
     }
 
     private func ruleRow(_ r: RuleResult, icon: String, color: Color) -> some View {
