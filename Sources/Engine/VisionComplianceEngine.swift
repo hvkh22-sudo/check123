@@ -7,6 +7,29 @@ import CoreImage
 /// landmark → the crop guides measure it); background/glasses/edit stay user-confirm for now.
 /// Thresholds are initial guesses to CALIBRATE on a real device against a labeled sample set.
 struct VisionComplianceEngine: ComplianceEngine {
+
+    /// Decides the head-tilt rule from the angles Vision reported.
+    ///
+    /// Pure and internal so the "not measured" path is testable without a camera. That path
+    /// is where a false pass hid, and a false pass on tilt is one of the few defects that
+    /// reaches the passport office rather than the user.
+    static func tiltRule(rollDeg: Double?, yawDeg: Double?) -> RuleResult {
+        // isFinite here as well as in the caller: this function is internal and total,
+        // and a NaN reaching Int(...) in the failing branch below is a hard trap.
+        guard let roll = rollDeg, let yaw = yawDeg, roll.isFinite, yaw.isFinite else {
+            return RuleResult(id: "head.tilt", status: .confirm, measured: nil, unit: nil,
+                              message: "Couldn't measure your head angle — check you're facing the camera straight.")
+        }
+        let maxTilt = max(abs(roll), abs(yaw))
+        let ok = maxTilt <= PassportRules.rollToleranceDeg
+        return RuleResult(
+            id: "head.tilt",
+            status: ok ? .verifiedPass : .verifiedFail,
+            measured: maxTilt, unit: "°",
+            // Safe from the trap the old clamp guarded against: a non-finite angle cannot
+            // reach here, because `degreesOrNil` reports it as nil and it is handled above.
+            message: ok ? "Head is straight." : "Face the camera straight — you're tilted \(Int(maxTilt))°.")
+    }
     let engineVersion = "0.2-vision"
 
     func analyze(_ fullImage: CIImage) async -> ComplianceReport {
@@ -57,12 +80,8 @@ struct VisionComplianceEngine: ComplianceEngine {
         var results: [RuleResult] = []
 
         // Tilt (roll/yaw in radians → degrees)
-        let maxTilt = max(abs(degrees(face.roll)), abs(degrees(face.yaw)))
-        results.append(RuleResult(
-            id: "head.tilt",
-            status: maxTilt <= PassportRules.rollToleranceDeg ? .verifiedPass : .verifiedFail,
-            measured: maxTilt, unit: "°",
-            message: maxTilt <= PassportRules.rollToleranceDeg ? "Head is straight." : "Face the camera straight — you're tilted \(Int(maxTilt))°."))
+        results.append(Self.tiltRule(rollDeg: degreesOrNil(face.roll),
+                                     yawDeg: degreesOrNil(face.yaw)))
 
         // Centering (bounding-box mid-x)
         let cx = face.boundingBox.midX
@@ -94,6 +113,13 @@ struct VisionComplianceEngine: ComplianceEngine {
                 status: sharp ? .verifiedPass : .verifiedFail,
                 measured: Double(q) * 100, unit: "%",
                 message: sharp ? "Photo is sharp." : "Looks blurry or low quality — retake."))
+        } else {
+            // Without an else the whole rule vanished from the report when Vision could not
+            // score the face. `overall` is computed from the rules that are present, so a
+            // blurry photo could reach `.pass` with the sharpness question never asked and
+            // never shown to the user. An unmeasurable rule has to stay in the report.
+            results.append(RuleResult(id: "img.sharp", status: .confirm, measured: nil, unit: nil,
+                                      message: "Couldn't measure sharpness — check the photo is in focus."))
         }
 
         // Head height — assisted. Vision has no crown landmark, so this is an estimate
@@ -147,10 +173,16 @@ struct VisionComplianceEngine: ComplianceEngine {
 
     // (clamp helper defined at file scope below)
 
-    private func degrees(_ radians: NSNumber?) -> Double {
-        // Vision can return a present-but-NaN roll/yaw on extreme/degenerate detections.
-        // A NaN reaching Int(...) later is a hard runtime trap, so clamp to 0 here.
-        guard let r = radians?.doubleValue, r.isFinite else { return 0 }
+    /// Vision can return a missing or present-but-NaN roll/yaw on extreme or degenerate
+    /// detections. This reports that as nil rather than as an angle.
+    ///
+    /// It used to clamp to 0, which kept a NaN out of `Int(...)` — a real runtime trap — but
+    /// paid for it by turning "not measured" into "0°", and 0° passes the tilt rule. The
+    /// degenerate detections Vision warns about are exactly the extreme head positions the
+    /// rule exists to catch, so the failure mode and the fallback were correlated: the
+    /// harder the head was tilted, the likelier the app was to call it straight.
+    private func degreesOrNil(_ radians: NSNumber?) -> Double? {
+        guard let r = radians?.doubleValue, r.isFinite else { return nil }
         return r * 180.0 / Double.pi
     }
 
