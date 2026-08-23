@@ -37,7 +37,49 @@ enum PassportRules {
     static let bgSaturationMax = 0.18
     /// Max luminance spread across the background before it reads as non-uniform (shadows,
     /// objects). Loosened for tiled/textured walls with visible grout lines.
+    ///
+    /// This measures a *gradient*, not an object. Standard deviation averages a localised
+    /// object into the wall around it: against a wall at 0.85, a black coat has to cover
+    /// 7.7% of the sampled background before this trips, a mid-grey bed rail 15.7%, and
+    /// anything at 0.50 luminance or lighter never trips it at any size. QA-002 on
+    /// 2026-08-23 hit exactly that — a hanging coat and a bed rail were both passed.
+    /// The outlier pair below is what catches objects; this stays for gradients.
     static let bgUniformityMax = 0.20
+
+    /// How much more varied than the wall's own typical variation a sample must be before
+    /// it counts as "not the wall".
+    ///
+    /// The threshold is this multiple of the median deviation, so it adapts: on a wall lit
+    /// unevenly every sample drifts and the band widens with them, while on a flat wall the
+    /// band collapses to the floor below and anything on the wall stands out.
+    static let bgOutlierScale = 3.0
+
+    /// The narrowest that band is ever allowed to get.
+    ///
+    /// This is the single most consequential number in the background check, and it is
+    /// **not yet calibrated against real photographs**. It decides both halves of the
+    /// trade-off: raise it and a beige door or a light wooden rail becomes invisible again,
+    /// which is the false pass QA-002 caught on 2026-08-23; lower it and an ordinary tiled
+    /// wall with visible grout starts failing, which is what the uniformity threshold above
+    /// was once loosened to prevent. At 0.07 the check rejects a visibly tiled wall. That is
+    /// a deliberate choice of the safer error — a false failure costs a retake, a false pass
+    /// costs a rejected passport application — and it must be revisited against the owner's
+    /// own photographs before release.
+    static let bgOutlierFloor = 0.07
+
+    /// Share of background samples allowed to be outliers before the background reads as
+    /// not plain. Small, because a passport background must be empty: at 2% of a 40x40 grid
+    /// this still tolerates a light switch, while catching a coat mostly hidden behind the
+    /// head.
+    static let bgOutlierFractionMax = 0.02
+
+    /// Fewest background samples the outlier statistic will accept.
+    ///
+    /// A share is meaningless on a handful of points: at 20 samples a 2% budget rounds to
+    /// tolerating no outlier at all, so one grid point catching the feathered edge of the
+    /// person mask would condemn the photo. Below this the analyser says it could not
+    /// measure instead of guessing.
+    static let bgMinBackgroundSamples = 60
 
     /// Whether a measured head-height percentage is inside the compliant green band.
     static func headHeightInBand(_ pct: Double) -> Bool {

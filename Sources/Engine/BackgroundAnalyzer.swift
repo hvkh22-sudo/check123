@@ -5,8 +5,9 @@ import Vision
 ///
 /// This replaces a self-report ("Is the background a plain wall?") with a real measurement:
 /// Vision segments the person, and we sample the pixels *outside* the person mask. A
-/// passport background must be plain and near-white, so we score its brightness, how white
-/// (low-saturation) it is, and how uniform it is across the frame.
+/// passport background must be plain and near-white, so it is scored on four things: how
+/// bright it is, how white it is, how evenly it is lit, and how much of it does not look
+/// like the wall at all.
 enum BackgroundAnalyzer {
 
     struct Result {
@@ -45,30 +46,135 @@ enum BackgroundAnalyzer {
                           luminance: nil)
         }
 
-        let brightEnough = stats.luminance >= PassportRules.bgLuminanceMin
-        let whiteEnough = stats.saturation <= PassportRules.bgSaturationMax
-        let uniform = stats.stdDev <= PassportRules.bgUniformityMax
+        return verdict(for: stats)
+    }
 
-        if brightEnough && whiteEnough && uniform {
+    /// One background pixel. Kept as colour rather than reduced to luminance on the spot,
+    /// because a curtain that is the same brightness as the wall but a different colour is
+    /// invisible to luminance alone — and the mean saturation that used to be the only
+    /// colour signal has exactly the averaging flaw this file exists to remove.
+    struct Sample {
+        let r: Double
+        let g: Double
+        let b: Double
+
+        var luminance: Double { 0.299 * r + 0.587 * g + 0.114 * b }
+        var saturation: Double {
+            let mx = max(r, g, b), mn = min(r, g, b)
+            return mx <= 0 ? 0 : (mx - mn) / mx
+        }
+    }
+
+    /// Internal rather than private so the two decisions that actually reject a photo —
+    /// how the samples are reduced to a statistic, and which message that statistic earns —
+    /// can be tested without a camera. That is where the false pass of 2026-08-23 lived.
+    struct Stats {
+        let luminance: Double
+        let saturation: Double
+        /// Luminance spread across the whole background. Catches light falling off across
+        /// the wall.
+        let stdDev: Double
+        /// Share of samples that do not look like the wall. Catches objects and cast
+        /// shadows, which a spread measure averages away.
+        let outlierFraction: Double
+        /// The deviation a sample had to exceed to count. Reported for tuning; it adapts to
+        /// how varied the wall itself is.
+        let outlierThreshold: Double
+    }
+
+    /// The lower median: for an even count this is a value that actually occurs in the
+    /// image, rather than the midpoint between the two central ones. That midpoint is
+    /// exactly wrong for the case this statistic exists to catch — a background split half
+    /// wall and half wardrobe puts the interpolated anchor in the empty space between them,
+    /// leaving both halves equidistant from it and neither one an outlier.
+    static func lowerMedian(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        return sorted[(sorted.count - 1) / 2]
+    }
+
+    /// Reduces the sampled background pixels to the statistics the verdict is made on.
+    ///
+    /// The wall is estimated robustly — the median luminance and the median of each colour
+    /// channel — and a sample's deviation is the largest of its departures from those. A
+    /// sample counts as "not the wall" when it exceeds a threshold that **scales with how
+    /// varied the wall already is**: a multiple of the median deviation, floored so that a
+    /// perfectly flat wall still has a usable band. That scaling is what separates a wall
+    /// lit unevenly, where every sample drifts a little, from a wall with something on it,
+    /// where most samples agree and a few do not.
+    static func stats(samples: [Sample]) -> Stats {
+        guard !samples.isEmpty else {
+            return Stats(luminance: .nan, saturation: .nan, stdDev: .nan,
+                         outlierFraction: .nan, outlierThreshold: .nan)
+        }
+
+        let n = Double(samples.count)
+        let lums = samples.map { $0.luminance }
+        let mean = lums.reduce(0, +) / n
+        let variance = lums.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / n
+
+        let medianL = lowerMedian(lums)
+        let medianR = lowerMedian(samples.map { $0.r })
+        let medianG = lowerMedian(samples.map { $0.g })
+        let medianB = lowerMedian(samples.map { $0.b })
+
+        let deviations = samples.map { s in
+            max(abs(s.luminance - medianL),
+                abs(s.r - medianR), abs(s.g - medianG), abs(s.b - medianB))
+        }
+        let threshold = max(PassportRules.bgOutlierScale * lowerMedian(deviations),
+                            PassportRules.bgOutlierFloor)
+        let outliers = deviations.reduce(into: 0) { count, d in
+            if d > threshold { count += 1 }
+        }
+
+        return Stats(luminance: mean,
+                     saturation: samples.reduce(0.0) { $0 + $1.saturation } / n,
+                     stdDev: variance.squareRoot(),
+                     outlierFraction: Double(outliers) / n,
+                     outlierThreshold: threshold)
+    }
+
+    /// Turns the statistics into a pass/fail and the one line the user reads.
+    ///
+    /// The failing dimensions are ranked by how far past their own threshold they are,
+    /// rather than by a fixed order. Under a fixed order, "too dark" was checked first and
+    /// masked every other reason: a bright but cluttered wall was told to find more light,
+    /// and the sentence about the wall not being plain could never be reached at all.
+    static func verdict(for stats: Stats) -> Result {
+        // A degenerate sample set produces NaN, and every comparison against NaN is false,
+        // which would filter out all four failures and return a pass. It reports "could not
+        // measure" instead. Note what the caller then does with that: VisionComplianceEngine
+        // maps a nil luminance to a user-confirmed checkbox, not to a failure — the same
+        // fallback used when segmentation is unavailable on an older device. So this is not
+        // a hard fail, and this comment must not claim it is.
+        guard stats.luminance.isFinite, stats.saturation.isFinite,
+              stats.stdDev.isFinite, stats.outlierFraction.isFinite else {
+            return Result(ok: false,
+                          message: "Is the background a plain, light, shadow-free wall?",
+                          luminance: nil)
+        }
+
+        // Each margin is a fraction of its own threshold, so the four rank by relative
+        // severity rather than by absolute units.
+        let failures: [(margin: Double, message: String)] = [
+            ((PassportRules.bgLuminanceMin - stats.luminance) / PassportRules.bgLuminanceMin,
+             "Background looks too dark — use a plain, light wall."),
+            ((stats.saturation - PassportRules.bgSaturationMax) / PassportRules.bgSaturationMax,
+             "Background has too much color — a plain white/off-white wall works best."),
+            ((stats.outlierFraction - PassportRules.bgOutlierFractionMax) / PassportRules.bgOutlierFractionMax,
+             "Background isn't plain — something is behind you, or a shadow is on the wall."),
+            ((stats.stdDev - PassportRules.bgUniformityMax) / PassportRules.bgUniformityMax,
+             "Lighting on the wall is uneven — move to a flatter light.")
+        ].filter { $0.margin > 0 }
+
+        guard let worst = failures.max(by: { $0.margin < $1.margin }) else {
             return Result(ok: true, message: "Background looks plain and light.",
                           luminance: stats.luminance)
         }
-
-        let reason: String
-        if !brightEnough {
-            reason = "Background looks too dark — use a plain, light wall."
-        } else if !whiteEnough {
-            reason = "Background has too much color — a plain white/off-white wall works best."
-        } else {
-            reason = "Background isn't uniform — remove shadows and objects behind you."
-        }
-        return Result(ok: false, message: reason, luminance: stats.luminance)
+        return Result(ok: false, message: worst.message, luminance: stats.luminance)
     }
 
-    private struct Stats { let luminance: Double; let saturation: Double; let stdDev: Double }
-
-    /// Samples a grid of points, keeps those the mask marks as background, and returns
-    /// mean luminance, mean saturation, and luminance spread (uniformity).
+    /// Samples a grid of points and keeps those the mask marks as background.
     private static func sampleBackground(image: CIImage, mask: CVPixelBuffer) -> Stats? {
         let extent = image.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
@@ -90,8 +196,7 @@ enum BackgroundAnalyzer {
         guard let mbase = CVPixelBufferGetBaseAddress(mask) else { return nil }
         let mptr = mbase.assumingMemoryBound(to: UInt8.self)
 
-        var lums: [Double] = []
-        var satSum = 0.0
+        var samples: [Sample] = []
         let steps = 40
         for iy in 0..<steps {
             for ix in 0..<steps {
@@ -110,16 +215,15 @@ enum BackgroundAnalyzer {
                 let g = Double(ptr[off + 1]) / 255
                 let b = Double(ptr[off + 2]) / 255
 
-                lums.append(0.299 * r + 0.587 * g + 0.114 * b)
-                let maxc = max(r, g, b), minc = min(r, g, b)
-                satSum += maxc <= 0 ? 0 : (maxc - minc) / maxc
+                samples.append(Sample(r: r, g: g, b: b))
             }
         }
 
-        guard lums.count >= 20 else { return nil }   // too little background visible
-        let mean = lums.reduce(0, +) / Double(lums.count)
-        let variance = lums.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lums.count)
-        return Stats(luminance: mean, saturation: satSum / Double(lums.count),
-                     stdDev: variance.squareRoot())
+        // A share-of-samples statistic is meaningless on a handful of points: at 20 samples
+        // a 2% budget rounds to "no outlier at all is tolerated", so one grid point landing
+        // on the feathered edge of the person mask would condemn the photo. Below this count
+        // the analyser reports that it could not measure, rather than guessing.
+        guard samples.count >= PassportRules.bgMinBackgroundSamples else { return nil }
+        return stats(samples: samples)
     }
 }
