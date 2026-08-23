@@ -126,7 +126,11 @@ struct ExportView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
-                Button("Done") {
+                // Done discards the photo — `onDone` clears the session. `ShareLink` gives
+                // no completion callback, so the app cannot tell whether the user actually
+                // saved anything first. The label therefore asks the user to assert it rather
+                // than the app assuming it.
+                Button("I've saved it — done") {
                     renderedImage = nil
                     onDone()
                 }

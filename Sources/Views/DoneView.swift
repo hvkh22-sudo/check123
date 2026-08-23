@@ -21,7 +21,11 @@ struct DoneView: View {
                     .font(.system(size: 52))
                     .foregroundStyle(Brand.pass)
             }
-            Text("Saved to your photos")
+            // The app has no photo-library code at all — `ShareLink` is the only delivery
+            // path in the project and it reports no outcome — so it cannot know whether
+            // anything was saved. It used to say so anyway, under a green tick, even when the
+            // share sheet had never been opened. It states what it actually knows now.
+            Text("Your photo is ready")
                 .font(.title2.bold())
             Text("Before you submit, confirm the things we can't check:")
                 .font(.subheadline)
