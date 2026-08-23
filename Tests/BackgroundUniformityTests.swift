@@ -152,29 +152,39 @@ final class BackgroundUniformityTests: XCTestCase {
     // MARK: - The statistic itself
 
     /// The one design decision the implementation comment singles out. A large object drags
-    /// the mean towards itself until the wall is as far from the mean as the object is, and
-    /// then nothing is an outlier at all. Anchoring on the median keeps the wall as the
-    /// reference. At 45% coverage the two anchors disagree completely: 0% against 45%.
+    /// the mean towards itself until the wall is as far from the mean as the object is — and
+    /// because the band is scaled from the *median deviation*, a mean anchor also widens its
+    /// own threshold to swallow both. Anchoring on the median keeps the wall as the reference.
+    ///
+    /// CI caught an earlier version of this test comparing mean-anchored deviations against
+    /// the *median-anchored* threshold, which is not a comparison of anchors at all. The whole
+    /// algorithm is re-run below with the mean substituted for the median, threshold included.
     func testMedianAnchorSurvivesAnObjectLargeEnoughToMoveTheMean() {
         let samples = background(object: .init(r: 0.51, g: 0.50, b: 0.49),
                                  covering: 0.45,
                                  wall: BackgroundAnalyzer.Sample(r: 0.91, g: 0.90, b: 0.89))
-        let s = BackgroundAnalyzer.stats(samples: samples)
+        let stats = BackgroundAnalyzer.stats(samples: samples)
 
-        // What a mean anchor would have produced, computed here rather than assumed.
         let n = Double(samples.count)
-        let meanL = samples.reduce(0) { $0 + $1.luminance } / n
-        let meanR = samples.reduce(0) { $0 + $1.r } / n
-        let meanG = samples.reduce(0) { $0 + $1.g } / n
-        let meanB = samples.reduce(0) { $0 + $1.b } / n
-        let meanAnchored = samples.filter {
-            max(abs($0.luminance - meanL), abs($0.r - meanR), abs($0.g - meanG), abs($0.b - meanB))
-                > s.outlierThreshold
-        }.count
+        let meanL = samples.reduce(0.0) { $0 + $1.luminance } / n
+        let meanR = samples.reduce(0.0) { $0 + $1.r } / n
+        let meanG = samples.reduce(0.0) { $0 + $1.g } / n
+        let meanB = samples.reduce(0.0) { $0 + $1.b } / n
+        let meanDeviations = samples.map { sample in
+            max(abs(sample.luminance - meanL),
+                abs(sample.r - meanR), abs(sample.g - meanG), abs(sample.b - meanB))
+        }
+        let meanThreshold = max(
+            PassportRules.bgOutlierScale * BackgroundAnalyzer.lowerMedian(meanDeviations),
+            PassportRules.bgOutlierFloor)
+        let meanAnchoredOutliers = meanDeviations.filter { $0 > meanThreshold }.count
 
-        XCTAssertEqual(meanAnchored, 0, "A mean anchor sees nothing here — that is the point.")
-        XCTAssertGreaterThan(s.outlierFraction, 0.4)
-        XCTAssertFalse(BackgroundAnalyzer.verdict(for: s).ok)
+        XCTAssertEqual(meanAnchoredOutliers, 0,
+                       "Anchored on the mean, every sample sits a similar distance from it, the "
+                       + "band widens to match, and a background that is 45% wardrobe looks plain.")
+        XCTAssertGreaterThan(stats.outlierFraction, 0.4,
+                             "Anchored on the median, the wall stays the reference and the object shows.")
+        XCTAssertFalse(BackgroundAnalyzer.verdict(for: stats).ok)
     }
 
     /// For an even count the lower median must be a value that occurs in the image, not the
