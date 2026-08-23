@@ -1,0 +1,173 @@
+# App Store screenshot capture — manual only.
+#
+# Why this exists: the studio has no Mac. Screenshots taken by hand on whatever iPhone is
+# in reach land at that phone's native size, and App Store Connect only accepts a fixed
+# list of sizes — which is discovered after the shoot, when the room and the model are
+# gone. Capturing on a pinned simulator makes the pixel size a property of CI.
+#
+# It never uploads anything to Apple and never touches signing secrets.
+name: App Store screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Simulator device name (blank = auto-pick a Pro Max)'
+        required: false
+        default: ''
+
+jobs:
+  screenshots:
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned XcodeGen
+        env:
+          XCODEGEN_VERSION: "2.45.4"
+          XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          install_dir="$RUNNER_TEMP/xcodegen"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" \
+            --output "$archive"
+          echo "${XCODEGEN_SHA256}  ${archive}" | shasum -a 256 --check -
+          unzip -q "$archive" -d "$install_dir"
+          echo "$install_dir/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Choose and boot the simulator
+        id: sim
+        env:
+          REQUESTED_DEVICE: ${{ inputs.device }}
+        run: |
+          set -euo pipefail
+          list=$(xcrun simctl list devices available)
+          echo "$list"
+          pick_udid() {
+            printf '%s\n' "$list" | grep -F "$1" | grep -oE "[0-9A-Fa-f-]{36}" | head -1
+          }
+          udid=""
+          if [ -n "${REQUESTED_DEVICE}" ]; then
+            udid=$(pick_udid "${REQUESTED_DEVICE}") || true
+            [ -n "$udid" ] || { echo "::error::Requested device '${REQUESTED_DEVICE}' is not available on this runner."; exit 1; }
+          else
+            # Prefer the models whose native portrait size is on Apple's accepted 6.9-inch
+            # list. The size is re-verified from the actual PNGs later regardless.
+            for name in "iPhone 17 Pro Max" "iPhone 16 Pro Max" "iPhone 15 Pro Max"; do
+              udid=$(pick_udid "$name") || true
+              [ -n "$udid" ] && { echo "Chose $name"; break; }
+            done
+            [ -n "$udid" ] || { echo "::error::No Pro Max simulator is available on this runner. Re-run with an explicit device input."; exit 1; }
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          # A real clock, a draining battery and "Carrier" in the corner make a marketing
+          # screenshot look like a CI artifact. Apple's own 9:41 is the convention.
+          xcrun simctl status_bar "$udid" override             --time "9:41" --batteryState charged --batteryLevel 100             --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3 || true
+
+      - name: Seed the simulator photo library (optional)
+        env:
+          # The repository is public, so a real person's face must never be committed to
+          # it. The sample photo therefore arrives as owner-controlled secrets, split
+          # across chunks because one GitHub secret cannot hold a whole JPEG. Absent
+          # secrets are not an error: the run then produces only the screens that need no
+          # photo, and says so in the manifest.
+          B64_1: ${{ secrets.SCREENSHOT_SAMPLE_B64_1 }}
+          B64_2: ${{ secrets.SCREENSHOT_SAMPLE_B64_2 }}
+          B64_3: ${{ secrets.SCREENSHOT_SAMPLE_B64_3 }}
+          B64_4: ${{ secrets.SCREENSHOT_SAMPLE_B64_4 }}
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -uo pipefail
+          joined="${B64_1:-}${B64_2:-}${B64_3:-}${B64_4:-}"
+          if [ -z "$joined" ]; then
+            echo "No SCREENSHOT_SAMPLE_B64_* secret is set — capturing the no-photo screens only."
+            exit 0
+          fi
+          printf '%s' "$joined" | tr -d '\r\n ' | base64 --decode > "$RUNNER_TEMP/sample.jpg"
+          if ! file "$RUNNER_TEMP/sample.jpg" | grep -qiE 'jpeg|png'; then
+            echo "::error::The assembled SCREENSHOT_SAMPLE_B64_* value is not a JPEG or PNG. Re-create the chunks."
+            exit 1
+          fi
+          # Size only — never the content — is printed.
+          echo "Sample photo decoded: $(stat -f%z "$RUNNER_TEMP/sample.jpg") bytes"
+          xcrun simctl addmedia "$UDID" "$RUNNER_TEMP/sample.jpg"
+
+      - name: Capture screenshots
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set +e
+          xcodebuild test \
+            -project PassCheck.xcodeproj \
+            -scheme PassCheckScreenshots \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/screenshots.xcresult" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee ui.log
+          code=${PIPESTATUS[0]}
+          sed -n '/SCREENSHOT-MANIFEST-BEGIN/,/SCREENSHOT-MANIFEST-END/p' ui.log
+          if [ "$code" -ne 0 ]; then
+            grep -E "error:|XCTAssert|Failing test|never appeared" ui.log | head -40 | sed 's/^/::error::/'
+            tail -25 ui.log | sed 's/^/::error::/'
+            exit "$code"
+          fi
+
+      - name: Collect the PNGs and verify their pixel sizes
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -euo pipefail
+          # The runner app is normally still installed after the test, but that is not
+          # guaranteed, so fall back to the simulator's own data root before giving up.
+          src=""
+          if container=$(xcrun simctl get_app_container "$UDID" com.appstudio.passcheck.uitests.xctrunner data 2>/dev/null); then
+            [ -d "$container/Documents/Screenshots" ] && src="$container/Documents/Screenshots"
+          fi
+          if [ -z "$src" ]; then
+            src=$(find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Containers/Data/Application"                     -maxdepth 3 -type d -name Screenshots 2>/dev/null | head -1)
+          fi
+          [ -n "$src" ] && [ -d "$src" ] || { echo "::error::The UI test wrote no screenshot directory."; exit 1; }
+          echo "Reading screenshots from: $src"
+          mkdir -p out
+          cp "$src"/* out/
+          echo "----- manifest -----"
+          cat out/MANIFEST.txt || true
+          echo "----- measured sizes -----"
+          # Apple's accepted portrait sizes, from release/SCREENSHOT_PLAN.md (6.9-inch
+          # first, then the documented 6.5-inch fallback). A capture at any other size is
+          # a failure here rather than a rejection in App Store Connect later.
+          accepted="1320x2868 1290x2796 1260x2736 1284x2778 1242x2688"
+          bad=0
+          shot_count=0
+          for f in out/*.png; do
+            [ -e "$f" ] || continue
+            shot_count=$((shot_count + 1))
+            w=$(sips -g pixelWidth  "$f" | awk '/pixelWidth/{print $2}')
+            h=$(sips -g pixelHeight "$f" | awk '/pixelHeight/{print $2}')
+            size="${w}x${h}"
+            case " $accepted " in
+              *" $size "*) echo "OK   $(basename "$f") $size" ;;
+              *) echo "::error::$(basename "$f") is ${size}, which is not an accepted App Store size."; bad=1 ;;
+            esac
+          done
+          [ "$shot_count" -gt 0 ] || { echo "::error::No PNG was produced."; exit 1; }
+          echo "Captured $shot_count screenshot(s)."
+          exit "$bad"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: appstore-screenshots
+          path: out/
+          if-no-files-found: warn
+          retention-days: 7

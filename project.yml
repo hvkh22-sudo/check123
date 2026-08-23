@@ -58,3 +58,36 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck.tests
+  # Screenshot capture only. Kept out of the PassCheck scheme on purpose: `build-test`
+  # must keep running exactly the unit suite it runs today, on every push and PR, without
+  # waiting on a simulator UI run that depends on a seeded photo library.
+  PassCheckUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: PassCheck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.appstudio.passcheck.uitests
+
+# Declared explicitly rather than left to Xcode's autocreation, so that adding a test
+# target can never silently change what CI runs under `-scheme PassCheck`.
+schemes:
+  PassCheck:
+    build:
+      targets:
+        PassCheck: all
+        PassCheckTests: [test]
+    test:
+      targets:
+        - PassCheckTests
+  PassCheckScreenshots:
+    build:
+      targets:
+        PassCheck: all
+        PassCheckUITests: [test]
+    test:
+      targets:
+        - PassCheckUITests
