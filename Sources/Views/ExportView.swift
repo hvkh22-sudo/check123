@@ -29,6 +29,20 @@ struct ExportView: View {
 
     private var unlocked: Bool { store.purchased }
 
+    /// Extracted so it can also be offered before a photo exists — see the branch above.
+    @ViewBuilder
+    private var restoreButton: some View {
+        Button("Restore purchase") {
+            Task {
+                isPurchasing = true
+                await store.restore()
+                isPurchasing = false
+            }
+        }
+        .font(.footnote)
+        .disabled(isPurchasing)
+    }
+
     /// Omits the price entirely when the real product has not loaded, rather than quoting a
     /// currency the customer may not be paying in.
     private var purchaseButtonTitle: String {
@@ -115,7 +129,12 @@ struct ExportView: View {
             Spacer()
 
             if preparing || !isCropped {
-                EmptyView()   // no purchase until we have a prepared photo
+                // No purchase until there is a prepared photo — but restore is not a purchase.
+                // Apple requires a non-consumable's restore to be reachable, and it used to
+                // live inside the branch below, so a returning customer who had reinstalled
+                // had to shoot a photo that passed every check and cropped successfully before
+                // any restore control existed at all.
+                if !unlocked { restoreButton }
             } else if unlocked {
                 if let ui = renderedImage {
                     ShareLink(item: Image(uiImage: ui),
@@ -150,15 +169,7 @@ struct ExportView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(isPurchasing)
 
-                Button("Restore purchase") {
-                    Task {
-                        isPurchasing = true
-                        await store.restore()
-                        isPurchasing = false
-                    }
-                }
-                .font(.footnote)
-                .disabled(isPurchasing)
+                restoreButton
 
                 Text("One-time · no subscription")
                     .font(.caption)

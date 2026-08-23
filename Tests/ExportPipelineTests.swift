@@ -148,6 +148,42 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertFalse(cut.isCompliant)
     }
 
+    /// The scale step has no floor at 1:1, so a small crop is upscaled and then labelled
+    /// "1200 x 1200" on screen. Below `pixelMin` that turns "this photo does not have enough
+    /// detail to comply" into a number that looks compliant.
+    func testCropWithoutEnoughRealDetailIsRejectedRatherThanUpscaled() {
+        let source = sourceImage(width: 1800, height: 2400)
+        // Head spanning 10% of the frame: the crop is 375px, well under the 600px minimum.
+        let result = ExportPipeline.make(from: source, crownY: 0.30, chinY: 0.40)
+
+        XCTAssertNil(result.image)
+        XCTAssertEqual(result.reason?.contains("closer") ?? false, true,
+                       "Got: \(result.reason ?? "nil")")
+    }
+
+    /// The floor must not reject an ordinary photo. A head spanning 16% of the frame is the
+    /// smallest that still carries `pixelMin` real pixels, and it has to survive.
+    func testASmallButSufficientCropStillExports() throws {
+        let source = sourceImage(width: 1800, height: 2400)
+        _ = try XCTUnwrap(ExportPipeline.makePassportImage(from: source, crownY: 0.30, chinY: 0.46))
+    }
+
+    /// The Adjust screen shows a prediction while the user drags. If it disagreed with the
+    /// pipeline, the screen would promise something the export then refuses.
+    func testPredictionMatchesWhatTheCropActuallyDelivers() {
+        // Clamped: the ideal square does not fit, so the head comes out at 80%.
+        XCTAssertEqual(
+            ExportPipeline.predictedHeadHeightPct(sourceWidth: 1800, sourceHeight: 2400,
+                                                  crownY: 0.18, chinY: 0.78),
+            80, accuracy: 0.2)
+
+        // Unclamped: the pipeline gets the square it asked for, so the head is at target.
+        XCTAssertEqual(
+            ExportPipeline.predictedHeadHeightPct(sourceWidth: 3000, sourceHeight: 4000,
+                                                  crownY: 0.25, chinY: 0.55),
+            Double(ExportPipeline.targetHeadFraction) * 100, accuracy: 0.2)
+    }
+
     /// The user has to be told which way to move, not merely that something is wrong.
     func testRejectionTellsTheUserWhichWayToMove() {
         let tooBig = ExportPipeline.Delivered(headHeightPct: 80, containsCrown: true, containsChin: true)

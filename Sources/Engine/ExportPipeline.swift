@@ -74,6 +74,23 @@ enum ExportPipeline {
         }
     }
 
+    /// The head fraction a crop would deliver, computed without performing the crop, so a
+    /// screen can promise only what the export can keep.
+    ///
+    /// `delivered(cropRect:crownPx:chinPx:)` stays authoritative — it measures the rectangle
+    /// after clamping and rounding. This differs from it by at most a rounding pixel, which
+    /// does not matter for a hint shown while someone drags a line.
+    static func predictedHeadHeightPct(sourceWidth: CGFloat, sourceHeight: CGFloat,
+                                       crownY: CGFloat, chinY: CGFloat) -> Double {
+        guard sourceWidth > 0, sourceHeight > 0 else { return 0 }
+        let top = max(0, min(crownY, chinY))
+        let bottom = min(1, max(crownY, chinY))
+        let headPx = (bottom - top) * sourceHeight
+        guard headPx > 0 else { return 0 }
+        let side = min(headPx / targetHeadFraction, min(sourceWidth, sourceHeight))
+        return Double(headPx / side) * 100
+    }
+
     /// Measures a finished crop rectangle against the head it was supposed to frame.
     ///
     /// Pure and internal so the delivered geometry is testable without a camera: every earlier
@@ -160,6 +177,14 @@ enum ExportPipeline {
         let result = delivered(cropRect: cropRect, crownPx: top * h, chinPx: bottom * h)
         guard result.isCompliant else {
             return (nil, rejection(for: result))
+        }
+
+        // The scale below has no floor at 1:1, so a crop smaller than the output size is
+        // upscaled and then labelled "1200 × 1200" on screen. When the real crop is under
+        // `pixelMin` that turns "this photo does not have enough detail to comply" into a
+        // number that looks compliant — the same trade the head-fraction clamp was making.
+        guard cropRect.height >= CGFloat(PassportRules.pixelMin) else {
+            return (nil, "there isn't enough detail at this framing — move closer to the camera and retake")
         }
 
         guard let cropped = base.cropping(to: cropRect) else {
