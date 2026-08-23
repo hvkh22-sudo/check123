@@ -51,15 +51,32 @@ struct AssistedCropView: View {
             }
             .frame(maxHeight: 360)
 
-            if hasAdjusted {
-                // The export re-frames the head to the compliant target, so once the guides
-                // sit on the crown and chin the result is in-range by construction — show
-                // that as reassurance, not a raw percentage that reads as a failure.
-                Label("Head will be sized correctly", systemImage: "checkmark.circle.fill")
-                    .font(.headline).foregroundStyle(.green)
-                Text("We'll crop so your head fills the required 50–69% of the photo.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+            if hasAdjusted, let pct = predictedHeadHeightPct {
+                // This used to claim "Head will be sized correctly" unconditionally, on the
+                // stated grounds that the export re-frames the head "in-range by
+                // construction". That is only true while the ideal square fits inside the
+                // photo; past that the square is clamped to the short edge and the head comes
+                // out larger than the band allows. The screen now asks the export what it
+                // would actually deliver, so the user learns here rather than at the end.
+                if PassportRules.headHeightInBand(pct) {
+                    Label("Head will be sized correctly", systemImage: "checkmark.circle.fill")
+                        .font(.headline).foregroundStyle(.green)
+                    Text("We'll crop so your head fills the required 50–69% of the photo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                } else if pct > PassportRules.headHeightMaxPct {
+                    Label("You're too close to the camera", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline).foregroundStyle(.orange)
+                    Text("At this framing your head would fill \(Int(pct.rounded()))% of the photo, above the 69% allowed. Retake from further away.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Label("You're too far from the camera", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline).foregroundStyle(.orange)
+                    Text("At this framing your head would fill only \(Int(pct.rounded()))% of the photo, below the 50% required. Retake from closer.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             } else {
                 Text("Line up your head")
                     .font(.headline).foregroundStyle(.secondary)
@@ -95,8 +112,18 @@ struct AssistedCropView: View {
         }
     }
 
-    private var headHeightPct: Double { Double(abs(chinY - crownY)) * 100 }
-    private var inBand: Bool { PassportRules.headHeightInBand(headHeightPct) }
+    /// What the export would deliver at the current guide positions.
+    ///
+    /// The pair this replaces measured `|chinY - crownY|`, which is the head as a share of the
+    /// **source frame**. The 50–69% band is defined on the **exported square**, so that value
+    /// answered a different question — and nothing used it anyway.
+    private var predictedHeadHeightPct: Double? {
+        guard let extent = image?.extent,
+              !extent.isInfinite, extent.width > 0, extent.height > 0 else { return nil }
+        return ExportPipeline.predictedHeadHeightPct(sourceWidth: extent.width,
+                                                     sourceHeight: extent.height,
+                                                     crownY: crownY, chinY: chinY)
+    }
 
     /// Where the photo is actually drawn inside the container, under `.scaledToFit()`.
     private func imageRect(in size: CGSize) -> CGRect {
