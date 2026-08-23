@@ -1,6 +1,27 @@
 import SwiftUI
 import CoreImage
+import Foundation
 import UIKit
+
+/// Lets exactly one of two racing tasks resume a continuation.
+///
+/// Resuming a checked continuation twice is a crash rather than a warning, so the race in
+/// `analyzeWithTimeout` needs a hard guarantee and not a hopeful one.
+///
+/// Internal rather than private so a test can pin that guarantee directly. The failure it
+/// prevents is a crash in the field, which is not something to leave to inspection.
+final class SingleResume: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
 
 /// Full app flow: Intro → Document type → Capture → Compliance review → Export → Done.
 /// Capture uses library import for now (camera + real Vision engine land on-device).
@@ -148,30 +169,50 @@ struct RootView: View {
         // occasionally stall on a frame; without a timeout that left "Checking your photo…"
         // on screen forever. Racing a timeout guarantees the spinner always resolves.
         let result = await Self.analyzeWithTimeout(engine, image, seconds: 6)
-        guard !Task.isCancelled, generation == analysisGeneration else { return }
+        guard !Task.isCancelled, generation == analysisGeneration else {
+            // Bailing out silently left `isAnalyzing` true and `report` nil, which is the
+            // spinner state — so a cancelled run owned the screen forever. Only the current
+            // generation may clear the flag: a superseded run must not switch off a spinner
+            // that a newer analysis is legitimately showing.
+            if generation == analysisGeneration { isAnalyzing = false }
+            return
+        }
         report = result
         isAnalyzing = false
         analysisTask = nil
     }
 
+    /// Returns whichever finishes first: the analysis, or the timeout.
+    ///
+    /// This used to race the two inside a `withTaskGroup`, which cannot bound anything: a
+    /// task group implicitly awaits every child before its `await` returns, and `cancelAll()`
+    /// only *requests* cancellation. Vision's `perform` is synchronous and never observes
+    /// that request, so a stalled person-segmentation kept the group alive, the timeout child
+    /// never got to win, and "Checking your photo…" stayed on screen with no way out. A
+    /// device hit exactly that on 2026-08-23, and the owner reported it had happened before.
+    ///
+    /// Resuming a continuation from whichever task finishes first genuinely bounds the wait.
+    /// The losing task is left to run itself out — an orphaned Vision request holding one
+    /// image for a few seconds is a far smaller problem than a screen the user cannot leave.
     static func analyzeWithTimeout(_ engine: ComplianceEngine,
                                    _ image: CIImage,
                                    seconds: Double) async -> ComplianceReport {
-        await withTaskGroup(of: ComplianceReport.self) { group in
-            group.addTask { await engine.analyze(image) }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return ComplianceReport(
-                    results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
-                                         measured: nil, unit: nil,
-                                         message: "Checking took too long — please retake in better light.")],
-                    engineVersion: "timeout")
+        let gate = SingleResume()
+        return await withCheckedContinuation { continuation in
+            Task.detached {
+                let report = await engine.analyze(image)
+                if gate.claim() { continuation.resume(returning: report) }
             }
-            let first = await group.next() ?? ComplianceReport(results: [], engineVersion: "cancelled")
-            // VisionComplianceEngine forwards cancellation to every active VNRequest, so
-            // the task group releases the image instead of leaving orphaned work behind.
-            group.cancelAll()
-            return first
+            Task.detached {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                if gate.claim() {
+                    continuation.resume(returning: ComplianceReport(
+                        results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
+                                             measured: nil, unit: nil,
+                                             message: "Checking took too long — please retake in better light.")],
+                        engineVersion: "timeout"))
+                }
+            }
         }
     }
 
