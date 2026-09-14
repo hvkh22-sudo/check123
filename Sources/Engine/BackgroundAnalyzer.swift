@@ -34,6 +34,10 @@ enum BackgroundAnalyzer {
         /// Mean background luminance, 0–1, for display/tuning. Nil when it couldn't run.
         let luminance: Double?
         let reason: Reason
+        /// Share of background samples that did not look like the wall, 0–1. Only set when
+        /// the statistic could be computed. The caller grades a `.notPlain` finding by this:
+        /// a small share is advice, a large one is a verified failure.
+        var outlierFraction: Double? = nil
     }
 
     static func analyze(
@@ -190,10 +194,12 @@ enum BackgroundAnalyzer {
 
         guard let worst = failures.max(by: { $0.margin < $1.margin }) else {
             return Result(ok: true, message: "Background looks plain and light.",
-                          luminance: stats.luminance, reason: .plain)
+                          luminance: stats.luminance, reason: .plain,
+                          outlierFraction: stats.outlierFraction)
         }
         return Result(ok: false, message: worst.message,
-                      luminance: stats.luminance, reason: worst.reason)
+                      luminance: stats.luminance, reason: worst.reason,
+                      outlierFraction: stats.outlierFraction)
     }
 
     /// Samples a grid of points and keeps those the mask marks as background.

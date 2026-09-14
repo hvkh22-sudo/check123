@@ -73,6 +73,20 @@ enum PassportRules {
     /// head.
     static let bgOutlierFractionMax = 0.02
 
+    /// Share of background samples beyond which "not plain" stops being advice and blocks.
+    ///
+    /// Below this the finding is shown as a warning the user can override, because the
+    /// measurement cannot tell a soft shadow from a light switch and a false lock would
+    /// trap someone in an ordinary room. At this share it is no longer a shadow: on
+    /// 2026-09-14 a device passed a photo with a hanging coat and a bed rail filling a
+    /// large part of the frame, and the app then sold an export of it under a green seal.
+    /// A passport office rejects that photo every time, and an honest checker has to say
+    /// so before the purchase, not after. Six times the advisory budget, so that a wall
+    /// with a switch and a shadow still gets through as advice. **Not yet calibrated** —
+    /// revisit against the owner's own photographs; the review screen now shows the
+    /// measured share so that calibration can be read off a screenshot.
+    static let bgOutlierFractionHard = 0.12
+
     /// Fewest background samples the outlier statistic will accept.
     ///
     /// A share is meaningless on a handful of points: at 20 samples a 2% budget rounds to

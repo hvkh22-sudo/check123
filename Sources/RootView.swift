@@ -63,7 +63,8 @@ struct RootView: View {
                         // the first thing the owner hit on a real device.
                         if let report {
                             ComplianceReviewView(report: report,
-                                                 onContinue: { path.append(Route.adjust) })
+                                                 onContinue: { path.append(Route.adjust) },
+                                                 onRetake: { restartAtCapture() })
                         } else if isAnalyzing {
                             VStack(spacing: 14) {
                                 ProgressView()
@@ -102,6 +103,10 @@ struct RootView: View {
                         ExportView(source: capturedImage,
                                    crownY: CGFloat(cy),
                                    chinY: CGFloat(chy),
+                                   // The review screen's warning travels with the photo. Without
+                                   // this the export screen said "Ready to export" under a green
+                                   // seal for a photo the previous screen had just flagged.
+                                   flagged: report?.results.filter(\.isAdvisoryConcern).map(\.message) ?? [],
                                    onDone: {
                                        discardSensitiveSession()
                                        path = NavigationPath()

@@ -33,6 +33,37 @@ struct VisionComplianceEngine: ComplianceEngine {
         }
     }
 
+    /// The same grading, with one more tier: a "not plain" finding whose measured share of
+    /// foreign samples is large is a verified failure, not advice.
+    ///
+    /// The advisory grade above exists because the statistic cannot tell a shadow from an
+    /// object, and a soft shadow must not trap a user. It was never meant to wave through a
+    /// coat and a bed rail — which is what a device did on 2026-09-14: the report said
+    /// "isn't plain", the screen said "passed", and the export sold. Above
+    /// `PassportRules.bgOutlierFractionHard` there is no shadow story left to tell.
+    static func backgroundStatus(for result: BackgroundAnalyzer.Result) -> RuleStatus {
+        if result.reason == .notPlain,
+           let share = result.outlierFraction, share.isFinite,
+           share >= PassportRules.bgOutlierFractionHard {
+            return .verifiedFail
+        }
+        return backgroundStatus(for: result.reason)
+    }
+
+    /// What number to print under the background line, and its unit.
+    ///
+    /// The row used to show mean brightness for every reason, so a wall flagged for having
+    /// a coat on it read "74%" — a number that described the wall's brightness and nothing
+    /// about the coat. For a "not plain" finding the share of foreign samples is the fact
+    /// that decided the verdict, and it is also the number calibration needs.
+    static func backgroundMeasure(for result: BackgroundAnalyzer.Result) -> (value: Double?, unit: String?) {
+        if result.reason == .notPlain, let share = result.outlierFraction, share.isFinite {
+            return (share * 100, "% of background")
+        }
+        guard let lum = result.luminance else { return (nil, nil) }
+        return (lum * 100, "%")
+    }
+
     /// Decides the head-tilt rule from the angles Vision reported.
     ///
     /// Pure and internal so the "not measured" path is testable without a camera. That path
@@ -159,10 +190,11 @@ struct VisionComplianceEngine: ComplianceEngine {
         // Background — now measured on-device (person segmentation), not self-reported.
         guard !Task.isCancelled else { return cancelledReport() }
         let bg = BackgroundAnalyzer.analyze(image, cancellation: cancellation)
+        let bgMeasure = Self.backgroundMeasure(for: bg)
         results.append(RuleResult(
             id: "bg.plain",
-            status: Self.backgroundStatus(for: bg.reason),
-            measured: bg.luminance.map { $0 * 100 }, unit: bg.luminance == nil ? nil : "%",
+            status: Self.backgroundStatus(for: bg),
+            measured: bgMeasure.value, unit: bgMeasure.unit,
             message: bg.message))
 
         // Still honest user-confirm items (not machine-verifiable)

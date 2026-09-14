@@ -60,6 +60,14 @@ struct LiveCaptureView: View {
         coach.hint ?? "Looks good — take the photo"
     }
 
+    /// Green only when the face *and* the wall pass. A flagged wall does not lock the
+    /// shutter (see `LiveGuidance.isReady`), but it must not be green either: green was
+    /// read as approval, and the photo it approved had a coat hanging in it.
+    private var shutterColor: Color {
+        guard coach.isReady else { return Color.white.opacity(0.4) }
+        return coach.backgroundHint == nil ? .green : .orange
+    }
+
     /// What VoiceOver says: the instruction plus, when it is showing separately as a chip,
     /// the background warning — so a VoiceOver user hears the same two things a sighted
     /// user sees, in one utterance rather than two competing ones.
@@ -86,8 +94,9 @@ struct LiveCaptureView: View {
                 BackgroundWarningWash()
             }
 
-            // The oval is where the head belongs. Green means every live check passes.
-            FaceScanOverlay(isReady: coach.isReady)
+            // The oval is where the head belongs. Green means every live check passes;
+            // amber means the face does but the wall behind it does not.
+            FaceScanOverlay(isReady: coach.isReady, isWarning: coach.backgroundHint != nil)
 
             VStack {
                 Text(mainInstruction)
@@ -124,7 +133,7 @@ struct LiveCaptureView: View {
                     }
                 } label: {
                     Circle()
-                        .fill(coach.isReady ? Color.green : Color.white.opacity(0.4))
+                        .fill(shutterColor)
                         .frame(width: 74, height: 74)
                         .overlay(Circle().stroke(.white, lineWidth: 4).padding(4))
                 }
