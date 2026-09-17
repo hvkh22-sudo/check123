@@ -17,6 +17,10 @@ struct ExportView: View {
     let source: CIImage?
     var crownY: CGFloat = 0
     var chinY: CGFloat = 0
+    /// Findings the review screen showed as warnings and the user chose to go past. They
+    /// are repeated here, on the screen that takes the money, because "Ready to export"
+    /// under a green seal is an approval, and the app has not given one.
+    var flagged: [String] = []
     var onDone: () -> Void
     var onRetake: () -> Void = {}
 
@@ -91,6 +95,25 @@ struct ExportView: View {
                 ProgressView()
                 Text("Preparing your photo…")
                     .font(.footnote).foregroundStyle(.secondary)
+            } else if isCropped, !flagged.isEmpty {
+                // Cropped correctly, but the photo carries an open finding. The size line is
+                // still true and still shown; the seal and the word "ready" are not.
+                Label("It may be rejected", systemImage: "exclamationmark.triangle.fill")
+                    .font(.title3.bold())
+                    .foregroundStyle(.orange)
+                ForEach(flagged, id: \.self) { finding in
+                    Text(finding)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                if let ui = renderedImage {
+                    Text("\(Int(ui.size.width)) × \(Int(ui.size.height)) px · cropped to size")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Button("Retake against a plain wall — checks are free", action: onRetake)
+                    .font(.footnote)
             } else if isCropped {
                 Text("Ready to export")
                     .font(.title3.bold())

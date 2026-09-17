@@ -8,6 +8,10 @@ import SwiftUI
 /// distinguishable at a glance without reading the instruction text.
 struct FaceScanOverlay: View {
     var isReady: Bool
+    /// The face passes but the wall behind it does not. The ring goes amber instead of
+    /// green: the shutter still works, but a green ring was read as "the photo is fine",
+    /// and on 2026-09-14 that reading cost a user a photo with a coat in it.
+    var isWarning: Bool = false
     var ovalSize = CGSize(width: 250, height: 330)
 
     /// Users who ask the system to reduce motion get the grid without the sweep; the
@@ -17,8 +21,10 @@ struct FaceScanOverlay: View {
     /// -1 is just above the oval, 1 is just below it.
     @State private var sweepPhase: CGFloat = -1
 
+    private var readyColor: Color { isWarning ? .orange : .green }
+
     private var lineColor: Color {
-        isReady ? .green : Color.green.opacity(0.7)
+        isReady ? readyColor : Color.green.opacity(0.7)
     }
 
     var body: some View {
@@ -30,12 +36,13 @@ struct FaceScanOverlay: View {
         .clipShape(Ellipse())
         .overlay {
             Ellipse()
-                .stroke(isReady ? Color.green : Color.white.opacity(0.85),
+                .stroke(isReady ? readyColor : Color.white.opacity(0.85),
                         style: StrokeStyle(lineWidth: isReady ? 4 : 3,
                                            dash: isReady ? [] : [10, 8]))
         }
         .frame(width: ovalSize.width, height: ovalSize.height)
         .animation(.easeInOut(duration: 0.2), value: isReady)
+        .animation(.easeInOut(duration: 0.2), value: isWarning)
         .onAppear(perform: startSweep)
         .accessibilityHidden(true)   // the spoken instruction carries the same information
     }
