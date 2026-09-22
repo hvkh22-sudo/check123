@@ -50,18 +50,23 @@ enum LiveGuidance {
     /// person holding the phone needs to know what to do about it, in the few words a capsule
     /// at the top of a camera view can carry. Each reason gets an instruction.
     ///
-    /// When the finding is strong enough that the review screen will refuse the photo, the
-    /// live line says so *before* the shutter, because retaking is cheapest while the user is
-    /// still standing there. The grading is `VisionComplianceEngine.backgroundStatus(for:)`
-    /// itself, so the two screens cannot drift apart.
+    /// When a "not plain" finding is strong enough that the review screen will refuse the
+    /// photo (at or above `PassportRules.bgOutlierFractionHard`), the live line says so
+    /// *before* the shutter, because retaking is cheapest while the user is still standing
+    /// there. The grading is `VisionComplianceEngine.backgroundStatus(for:)` itself, so the
+    /// two screens cannot drift apart. Too dark and too coloured always block; their lines
+    /// already tell the user what to change.
     ///
-    /// "Could not measure" says nothing live. Segmentation fails on some devices and in poor
-    /// light, and a capsule that reads "Photo checking was cancelled." or asks a question on
-    /// every frame is noise; the report still asks the user to confirm the wall afterwards.
+    /// "Could not measure" gets its own line rather than silence. Silence turned the ring and
+    /// the shutter green and put "Looks good — take the photo" over a wall nobody had looked
+    /// at — the same "unknown reads as fine" shape fixed elsewhere. It does not lock the
+    /// shutter: segmentation is unavailable on some devices and in poor light.
     static func backgroundInstruction(for result: BackgroundAnalyzer.Result) -> String? {
         switch result.reason {
-        case .plain, .couldNotMeasure:
+        case .plain:
             return nil
+        case .couldNotMeasure:
+            return "Couldn't check the wall — make sure it's plain and light"
         case .notPlain:
             if VisionComplianceEngine.backgroundStatus(for: result) == .verifiedFail {
                 return "This background would be rejected — stand against a plain, empty wall"

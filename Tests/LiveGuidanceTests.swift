@@ -110,10 +110,18 @@ final class LiveGuidanceTests: XCTestCase {
         XCTAssertEqual(Set(lines).count, 4, "Two different problems must not read the same.")
     }
 
-    /// A plain wall, or a wall the device could not measure, puts nothing on the live screen.
-    func testNothingToSayForAPlainOrUnmeasuredWall() {
+    /// A plain wall puts nothing on the live screen.
+    func testNothingToSayForAPlainWall() {
         XCTAssertNil(LiveGuidance.backgroundInstruction(for: background(.plain, share: 0)))
-        XCTAssertNil(LiveGuidance.backgroundInstruction(for: background(.couldNotMeasure)))
+    }
+
+    /// A wall the device could not measure is said to be unchecked, not left silent — silence
+    /// is what turns the ring green. It never locks the shutter (`isReady` ignores it).
+    func testAnUnmeasuredWallIsSaidToBeUnchecked() {
+        let line = LiveGuidance.backgroundInstruction(for: background(.couldNotMeasure))
+        XCTAssertNotNil(line)
+        XCTAssertTrue(line?.hasPrefix("Couldn't check the wall") ?? false, "Got: \(line ?? "nil")")
+        XCTAssertTrue(LiveGuidance.isReady(faceHint: nil))
     }
 
     /// The tolerance is a named rule now, and it stays looser than the horizontal one.
