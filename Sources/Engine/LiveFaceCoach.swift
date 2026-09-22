@@ -235,8 +235,8 @@ final class LiveFaceCoach: NSObject, ObservableObject {
         if abs(face.boundingBox.midX - 0.5) > PassportRules.centeringTolerance {
             return "Center your face"
         }
-        if abs(face.boundingBox.midY - 0.5) > 0.15 {
-            return face.boundingBox.midY > 0.5 ? "Lower the camera" : "Raise the camera"
+        if let vertical = LiveGuidance.verticalHint(faceMidY: Double(face.boundingBox.midY)) {
+            return vertical
         }
 
         // Head size guidance is withheld until the crown estimate is calibrated —

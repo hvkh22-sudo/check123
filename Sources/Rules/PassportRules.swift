@@ -22,6 +22,14 @@ enum PassportRules {
     /// Max distance of the face's horizontal midpoint from centre, as a fraction (tune).
     static let centeringTolerance = 0.10
 
+    /// Max distance of the face's vertical midpoint from centre, as a fraction (tune).
+    ///
+    /// Looser than the horizontal one on purpose: the export crops a square around the
+    /// crown and chin guides, so where the head sits vertically in the source frame matters
+    /// far less than where it sits horizontally. This was a bare `0.15` inside the live
+    /// coach until 2026-09-22 (QA-B2, LOW).
+    static let verticalCenteringTolerance = 0.15
+
     // Eyes-open EAR threshold (tune)
     static let earThreshold = 0.20
 

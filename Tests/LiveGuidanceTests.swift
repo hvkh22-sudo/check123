@@ -46,4 +46,39 @@ final class LiveGuidanceTests: XCTestCase {
     func testFaceProblemLocksTheShutter() {
         XCTAssertFalse(LiveGuidance.isReady(faceHint: "Put your face in the oval"))
     }
+
+    // MARK: - Vertical position
+
+    /// Vision's origin is bottom-left, so a face near the top of the frame has a large
+    /// midY — the phone is below the face and has to come up. The coach said the opposite
+    /// until 2026-09-22.
+    func testFaceHighInFrameAsksToRaiseTheCamera() {
+        XCTAssertEqual(LiveGuidance.verticalHint(faceMidY: 0.80), "Raise the camera")
+    }
+
+    func testFaceLowInFrameAsksToLowerTheCamera() {
+        XCTAssertEqual(LiveGuidance.verticalHint(faceMidY: 0.20), "Lower the camera")
+    }
+
+    /// Inside the band there is nothing to say. Offsets are kept clear of the exact
+    /// boundary, because 0.5 + 0.15 - 0.5 is 0.15000000000000002 in floating point.
+    func testFaceNearCentreNeedsNoVerticalHint() {
+        XCTAssertNil(LiveGuidance.verticalHint(faceMidY: 0.5))
+        let justInside = PassportRules.verticalCenteringTolerance - 0.01
+        XCTAssertNil(LiveGuidance.verticalHint(faceMidY: 0.5 + justInside))
+        XCTAssertNil(LiveGuidance.verticalHint(faceMidY: 0.5 - justInside))
+    }
+
+    /// A position Vision could not report gives no instruction rather than a wrong one.
+    /// The live coach only coaches; the post-capture report is where "unknown" is judged.
+    func testUnmeasuredVerticalPositionGivesNoInstruction() {
+        XCTAssertNil(LiveGuidance.verticalHint(faceMidY: .nan))
+        XCTAssertNil(LiveGuidance.verticalHint(faceMidY: .infinity))
+    }
+
+    /// The tolerance is a named rule now, and it stays looser than the horizontal one.
+    func testVerticalToleranceIsLooserThanHorizontal() {
+        XCTAssertGreaterThan(PassportRules.verticalCenteringTolerance,
+                             PassportRules.centeringTolerance)
+    }
 }
