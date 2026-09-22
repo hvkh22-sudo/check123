@@ -64,6 +64,24 @@ struct ComplianceReport: Codable, Equatable {
     /// detected, in which case the export falls back to the middle.
     var suggestedCenterX: Double?
 
+    /// Rules the phone normally measures on its own. When one of them comes back `.confirm`
+    /// with no measurement, the phone did not check it on this photo.
+    static let machineRuleIDs: Set<String> = ["head.tilt", "face.eyesopen", "img.sharp", "bg.plain"]
+
+    /// Machine checks that could not run on this photo.
+    ///
+    /// They are asked of the user rather than warned about — a phone without person
+    /// segmentation must not be told something is wrong on every photo (see
+    /// `ReviewVerdictTests.testAnUnmeasurableRuleDoesNotCountAsAConcern`) — but they are not
+    /// passes either. The review screen used to announce "Passed every automatic check"
+    /// over a report in which the background, the sharpness or the head angle had never
+    /// been measured.
+    var uncheckedMachineRules: [RuleResult] {
+        results.filter {
+            Self.machineRuleIDs.contains($0.id) && $0.status == .confirm && $0.measured == nil
+        }
+    }
+
     /// fail if any verified failure; else needsAttention if any assisted/confirm; else pass.
     var overall: ReportOutcome {
         if results.contains(where: { $0.status == .verifiedFail }) { return .fail }
