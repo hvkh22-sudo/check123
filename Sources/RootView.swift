@@ -123,8 +123,14 @@ struct RootView: View {
                                    onRetake: { restartAtCapture() })
                     case .done(let flagged):
                         DoneView(flagged: flagged, onRestart: {
-                            discardSensitiveSession()
-                            path = NavigationPath()
+                            // A flagged export's button says "Take a new photo" — so it goes
+                            // to the camera, not back to the intro.
+                            if flagged.isEmpty {
+                                discardSensitiveSession()
+                                path = NavigationPath()
+                            } else {
+                                restartAtCapture()
+                            }
                         })
                     }
                 }
@@ -243,10 +249,18 @@ struct RootView: View {
         hasSensitiveData && currentPathCount < previousPathCount && currentPathCount <= 2
     }
 
+    /// The stack a retake lands on: document type underneath capture, exactly as on a first
+    /// pass.
+    ///
+    /// It used to be `[capture]` alone, which shifted every later screen one place down.
+    /// Adjust sat at depth 3 instead of 4, so going back from it to the review screen matched
+    /// the "returned to capture" rule in `shouldDiscardSession`, the new check was wiped, and
+    /// the review screen read "That photo couldn't be checked." — after every retake.
+    static func retakeStack() -> [Route] { [.documentType, .capture] }
+
     private func restartAtCapture() {
         discardSensitiveSession()
-        path = NavigationPath()
-        path.append(Route.capture)
+        path = NavigationPath(Self.retakeStack())
     }
 
     private func discardSensitiveSession(resetNavigation: Bool = false) {
