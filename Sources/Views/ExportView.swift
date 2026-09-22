@@ -17,6 +17,8 @@ struct ExportView: View {
     let source: CIImage?
     var crownY: CGFloat = 0
     var chinY: CGFloat = 0
+    /// The face's horizontal midpoint; the square is centred on it. See `ExportPipeline.squareCrop`.
+    var centerX: CGFloat = 0.5
     /// Findings the review screen showed as warnings and the user chose to go past. They
     /// are repeated here, on the screen that takes the money, because "Ready to export"
     /// under a green seal is an approval, and the app has not given one.
@@ -62,11 +64,11 @@ struct ExportView: View {
         guard let source else {
             failureReason = "no photo to prepare"; isCropped = false; preparing = false; return
         }
-        let cy = crownY, chy = chinY
+        let cy = crownY, chy = chinY, cx = centerX
         let renderTask = Task.detached { () -> (image: UIImage?, reason: String?) in
             for attempt in 1...3 {
                 guard !Task.isCancelled else { return (nil, "cancelled") }
-                let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy)
+                let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy, centerX: cx)
                 if let img = r.image { return (Self.render(img), nil) }
                 if attempt == 3 { return (nil, r.reason) }
             }

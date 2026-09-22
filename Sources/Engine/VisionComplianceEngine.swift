@@ -213,6 +213,9 @@ struct VisionComplianceEngine: ComplianceEngine {
         var out = report(results)
         out.suggestedChinY = chinY
         out.suggestedCrownY = crownY
+        // Vision's x runs left to right like the export's CGImage space, so it needs no flip —
+        // only y is bottom-up. Both are measured on the same upright image.
+        out.suggestedCenterX = Double(box.midX).clamped01()
         return out
     }
 

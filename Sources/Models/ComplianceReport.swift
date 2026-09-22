@@ -56,6 +56,10 @@ struct ComplianceReport: Codable, Equatable {
     /// confirms rather than places them from scratch. Nil when no face was detected.
     var suggestedCrownY: Double?
     var suggestedChinY: Double?
+    /// The face's horizontal midpoint, as a fraction of the width from the left. The export
+    /// centres its square here rather than on the middle of the photo. Nil when no face was
+    /// detected, in which case the export falls back to the middle.
+    var suggestedCenterX: Double?
 
     /// fail if any verified failure; else needsAttention if any assisted/confirm; else pass.
     var overall: ReportOutcome {

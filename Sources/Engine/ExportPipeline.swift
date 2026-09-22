@@ -49,8 +49,36 @@ enum ExportPipeline {
     /// Convenience wrapper returning just the image (used by tests).
     static func makePassportImage(from image: CIImage,
                                   crownY: CGFloat,
-                                  chinY: CGFloat) -> CIImage? {
-        make(from: image, crownY: crownY, chinY: chinY).image
+                                  chinY: CGFloat,
+                                  centerX: CGFloat = 0.5) -> CIImage? {
+        make(from: image, crownY: crownY, chinY: chinY, centerX: centerX).image
+    }
+
+    /// The square the export crops, in the source's pixel space (top-left origin).
+    ///
+    /// Pure so the placement is testable without rendering. Horizontally the square is
+    /// centred on the **face**, not on the photo. It used to be `(w - side) / 2` — the middle
+    /// of the frame — so a face 9% off-centre, which still passes "Face is centered", came out
+    /// roughly a sixth of the square off-centre in the photo the customer paid for; a
+    /// landscape library photo could put an ear at the edge. `centerX` is the face's
+    /// horizontal midpoint as a fraction of the width; 0.5 reproduces the old placement
+    /// exactly, which is what every caller without a detected face still gets.
+    static func squareCrop(sourceWidth w: CGFloat, sourceHeight h: CGFloat,
+                           crownY: CGFloat, chinY: CGFloat,
+                           centerX: CGFloat = 0.5) -> CGRect {
+        let top = max(0, min(crownY, chinY))
+        let bottom = min(1, max(crownY, chinY))
+        let headPx = (bottom - top) * h
+        let side = min(headPx / targetHeadFraction, min(w, h))
+        let cx = centerX.isFinite ? min(max(centerX, 0), 1) : 0.5
+        // Written as an offset from the old centred origin so that cx = 0.5 is bit-for-bit
+        // the placement every existing test was written against.
+        var originX = (w - side) / 2 + (cx - 0.5) * w
+        var originY = top * h - side * marginAboveCrown
+        originX = min(max(originX, 0), w - side)
+        originY = min(max(originY, 0), h - side)
+        return CGRect(x: originX.rounded(), y: originY.rounded(),
+                      width: side.rounded(), height: side.rounded())
     }
 
     /// What a crop rectangle actually delivers, as opposed to what it was asked for.
@@ -125,7 +153,8 @@ enum ExportPipeline {
     /// on-device so a crop failure pinpoints its own cause instead of me guessing blind.
     static func make(from image: CIImage,
                      crownY: CGFloat,
-                     chinY: CGFloat) -> (image: CIImage?, reason: String?) {
+                     chinY: CGFloat,
+                     centerX: CGFloat = 0.5) -> (image: CIImage?, reason: String?) {
         let extent = image.extent
         if extent.isInfinite || extent.isNull {
             return (nil, "source extent invalid (\(extent.debugDescription))")
@@ -161,16 +190,10 @@ enum ExportPipeline {
             return (nil, "the crown and chin lines are on top of each other — place them on your head and try again")
         }
 
-        let side = min(headPx / targetHeadFraction, min(w, h))
-        var originX = (w - side) / 2
-        var originY = top * h - side * marginAboveCrown
-        originX = min(max(originX, 0), w - side)
-        originY = min(max(originY, 0), h - side)
+        let cropRect = squareCrop(sourceWidth: w, sourceHeight: h,
+                                  crownY: crownY, chinY: chinY, centerX: centerX)
 
-        let cropRect = CGRect(x: originX.rounded(), y: originY.rounded(),
-                              width: side.rounded(), height: side.rounded())
-
-        // `side` above is clamped to the source's short edge, so the head fraction that
+        // The square's side is clamped to the source's short edge, so the head fraction that
         // results is not necessarily the one that was asked for. Measure the rectangle that
         // will actually be used, and refuse rather than deliver a photo that will be rejected
         // for head size. A retake costs a minute; a rejected passport application does not.

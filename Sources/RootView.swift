@@ -46,7 +46,7 @@ struct RootView: View {
         // The guide positions travel WITH the navigation value, not through separate @State,
         // so the crop can never run with stale (0,0) guides — the "head span too small (0px)"
         // failure. Rounded to keep the value stably Hashable.
-        case export(crownY: Double, chinY: Double)
+        case export(crownY: Double, chinY: Double, centerX: Double)
     }
 
     var body: some View {
@@ -100,13 +100,15 @@ struct RootView: View {
                                          suggestedChinY: report?.suggestedChinY,
                                          onRecheck: { crownY, chinY in
                             // Carry the guides in the navigation value itself.
-                            path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY)))
+                            path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY),
+                                                     centerX: report?.suggestedCenterX ?? 0.5))
                         },
                                          onRetake: { restartAtCapture() })
-                    case .export(let cy, let chy):
+                    case .export(let cy, let chy, let cx):
                         ExportView(source: capturedImage,
                                    crownY: CGFloat(cy),
                                    chinY: CGFloat(chy),
+                                   centerX: CGFloat(cx),
                                    // The review screen's warning travels with the photo. Without
                                    // this the export screen said "Ready to export" under a green
                                    // seal for a photo the previous screen had just flagged.
