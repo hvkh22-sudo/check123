@@ -89,6 +89,15 @@ final class Store: ObservableObject {
     func purchase() async -> Bool {
         errorMessage = nil
 
+        // The product can fail to load when the screen opens — a flaky connection, or an empty
+        // result. The message below says "try again", and until this reload trying again could
+        // never work: every tap re-read the same nil and repeated the message until the user
+        // left the screen and came back.
+        if product == nil {
+            await load()
+            if purchased { return true }   // the reload found an existing purchase
+        }
+
         guard let product else {
             if Self.allowsTestUnlock {
                 unlockedForTesting = true

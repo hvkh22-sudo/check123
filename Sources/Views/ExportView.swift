@@ -159,7 +159,22 @@ struct ExportView: View {
                 // live inside the branch below, so a returning customer who had reinstalled
                 // had to shoot a photo that passed every check and cropped successfully before
                 // any restore control existed at all.
-                if !unlocked { restoreButton }
+                if unlocked {
+                    Label("Export unlocked", systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    restoreButton
+                }
+                // The error used to be shown only in the paywall branch below, so a restore that
+                // failed here — while preparing, or after "Couldn't prepare the photo" — said
+                // nothing at all.
+                if let message = store.errorMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
             } else if unlocked {
                 if let ui = renderedImage {
                     ShareLink(item: Image(uiImage: ui),
