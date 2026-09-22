@@ -1,6 +1,31 @@
 import SwiftUI
 import CoreImage
 import UIKit
+import UniformTypeIdentifiers
+import CoreTransferable
+
+/// The file the customer receives: JPEG bytes of the rendered square, at its own pixel size.
+///
+/// The export used to share a SwiftUI `Image`, which left both the file type and the pixel
+/// size to SwiftUI's own transfer representation — something this app never measured. If
+/// that renders at screen scale, a 1200 px photo leaves as a 3600 px file, and the
+/// government uploader accepts JPG, JPEG, PNG, HEIC or HEIF only between 54 KB and 10 MB
+/// (travel.state.gov, "Uploading a Digital Photo", updated 2026-05-04). Encoding here makes
+/// both facts the app's own: a JPEG, exactly as many pixels as the on-screen label says.
+struct PassportPhotoFile: Transferable {
+    let jpeg: Data
+
+    /// Nil only if encoding fails; the caller then falls back to sharing the image as before
+    /// rather than leaving a paying customer without a Save button.
+    init?(image: UIImage, quality: CGFloat = 0.92) {
+        guard let data = image.jpegData(compressionQuality: quality) else { return nil }
+        jpeg = data
+    }
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .jpeg) { $0.jpeg }
+    }
+}
 
 /// Screen 6 — export / paywall.
 ///
@@ -29,6 +54,8 @@ struct ExportView: View {
     @StateObject private var store = Store()
     @State private var isPurchasing = false
     @State private var renderedImage: UIImage?
+    /// Encoded once when the render lands, not on every body pass. Cleared with the image.
+    @State private var exportFile: PassportPhotoFile?
     @State private var isCropped = false
     @State private var failureReason: String?
     @State private var preparing = true
@@ -82,6 +109,7 @@ struct ExportView: View {
         guard !Task.isCancelled else { return }
 
         renderedImage = outcome.image
+        exportFile = outcome.image.flatMap { PassportPhotoFile(image: $0) }
         isCropped = outcome.image != nil
         failureReason = isCropped ? nil : outcome.reason
         preparing = false
@@ -176,7 +204,16 @@ struct ExportView: View {
                         .multilineTextAlignment(.center)
                 }
             } else if unlocked {
-                if let ui = renderedImage {
+                if let ui = renderedImage, let file = exportFile {
+                    ShareLink(item: file,
+                              preview: SharePreview("Passport photo", image: Image(uiImage: ui))) {
+                        Label("Save / Share", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if let ui = renderedImage {
+                    // Encoding failed — share the image the old way rather than show nothing.
                     ShareLink(item: Image(uiImage: ui),
                               preview: SharePreview("Passport photo", image: Image(uiImage: ui))) {
                         Label("Save / Share", systemImage: "square.and.arrow.up")
@@ -191,6 +228,7 @@ struct ExportView: View {
                 // than the app assuming it.
                 Button("I've saved it — done") {
                     renderedImage = nil
+                    exportFile = nil
                     onDone()
                 }
             } else {
@@ -239,6 +277,7 @@ struct ExportView: View {
         }
         .onDisappear {
             renderedImage = nil
+            exportFile = nil
         }
     }
 
