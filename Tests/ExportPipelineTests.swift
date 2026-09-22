@@ -193,6 +193,28 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertTrue(ExportPipeline.rejection(for: tooSmall).contains("closer"))
     }
 
+    // MARK: - Resolution, predicted
+
+    /// The Adjust screen's prediction and the export agree about resolution, so that screen
+    /// can no longer show a green tick and Continue for a crop the export will refuse.
+    func testDetailPredictionAgreesWithTheExport() {
+        let cases: [(w: CGFloat, h: CGFloat, crown: CGFloat, chin: CGFloat)] = [
+            (1800, 2400, 0.30, 0.55),   // ~938 px square: enough
+            (1200, 1600, 0.40, 0.60),   // 500 px square: under the 600 px minimum
+        ]
+        for c in cases {
+            let predicted = ExportPipeline.predictedHasEnoughDetail(
+                sourceWidth: c.w, sourceHeight: c.h, crownY: c.crown, chinY: c.chin)
+            let exported = ExportPipeline.make(from: sourceImage(width: c.w, height: c.h),
+                                               crownY: c.crown, chinY: c.chin).image != nil
+            XCTAssertEqual(predicted, exported, "\(c)")
+        }
+        XCTAssertTrue(ExportPipeline.predictedHasEnoughDetail(
+            sourceWidth: 1800, sourceHeight: 2400, crownY: 0.30, chinY: 0.55))
+        XCTAssertFalse(ExportPipeline.predictedHasEnoughDetail(
+            sourceWidth: 1200, sourceHeight: 1600, crownY: 0.40, chinY: 0.60))
+    }
+
     // MARK: - Horizontal placement
 
     /// The square is centred on the face, not on the photo. A face 9% left of centre passes

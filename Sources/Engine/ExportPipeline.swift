@@ -119,6 +119,20 @@ enum ExportPipeline {
         return Double(headPx / side) * 100
     }
 
+    /// Whether the crop at these guides has enough real pixels to meet `PassportRules.pixelMin`
+    /// without upscaling — predicted without rendering, from the same `squareCrop` the export
+    /// uses. `make` refuses such a crop ("there isn't enough detail at this framing"), and
+    /// the Adjust screen used to show a green "Head will be sized correctly" and Continue for
+    /// it anyway, because the head-fraction prediction sizes the square to the head and so
+    /// can never see a resolution problem. Horizontal placement does not change the side.
+    static func predictedHasEnoughDetail(sourceWidth: CGFloat, sourceHeight: CGFloat,
+                                         crownY: CGFloat, chinY: CGFloat) -> Bool {
+        guard sourceWidth > 0, sourceHeight > 0 else { return false }
+        let rect = squareCrop(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                              crownY: crownY, chinY: chinY)
+        return rect.height >= CGFloat(PassportRules.pixelMin)
+    }
+
     /// Measures a finished crop rectangle against the head it was supposed to frame.
     ///
     /// Pure and internal so the delivered geometry is testable without a camera: every earlier
