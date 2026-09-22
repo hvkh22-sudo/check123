@@ -18,6 +18,9 @@ struct RuleResult: Identifiable, Codable, Equatable {
     var measured: Double?  // measured value when applicable (e.g. 61.5)
     var unit: String?      // e.g. "%"
     var message: String
+    /// A calibration read-out, shown only in pre-release builds (see `BuildChannel`).
+    /// Never part of the verdict.
+    var diagnostic: String? = nil
 
     /// A problem the device measured and did not like, but is not certain enough to block on.
     ///

@@ -1,6 +1,21 @@
 import Foundation
 import StoreKit
 
+/// Whether this build can only reach testers: Xcode debug builds and TestFlight.
+///
+/// App Store builds ship a receipt named `receipt`; TestFlight builds ship `sandboxReceipt`.
+/// **App Review also runs against the sandbox**, so anything gated on this is visible to the
+/// reviewer too.
+enum BuildChannel {
+    static var isPreRelease: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
+}
+
 /// StoreKit 2 purchase manager for the one-time export unlock (no subscription).
 ///
 /// The product must be configured in App Store Connect (id below). Before it exists,
@@ -43,13 +58,7 @@ final class Store: ObservableObject {
     /// unlock, sees a working app, and approves it — while every paying customer meets
     /// "The store is unavailable right now". The gate protects revenue from leaking; it does
     /// not protect the launch from a store that never came up. See QA-B7.
-    private static var allowsTestUnlock: Bool {
-        #if DEBUG
-        return true
-        #else
-        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
-        #endif
-    }
+    private static var allowsTestUnlock: Bool { BuildChannel.isPreRelease }
 
     func load() async {
         do {

@@ -38,11 +38,18 @@ enum BackgroundAnalyzer {
         /// the statistic could be computed. The caller grades a `.notPlain` finding by this:
         /// a small share is advice, a large one is a verified failure.
         var outlierFraction: Double? = nil
+        /// The same share, measured only inside `diagnosticRegion` — the square the export will
+        /// keep. **Not used by the verdict.** It is a calibration read-out: whether the verdict
+        /// should move from the whole frame to the delivered square is an open question that
+        /// needs device photographs (a tighter region raises the share of samples on the soft
+        /// edge of the person mask, and could fail every photo on a clean wall).
+        var regionOutlierFraction: Double? = nil
     }
 
     static func analyze(
         _ image: CIImage,
-        cancellation: VisionRequestCancellation? = nil
+        cancellation: VisionRequestCancellation? = nil,
+        diagnosticRegion: CGRect? = nil
     ) -> Result {
         let req = VNGeneratePersonSegmentationRequest()
         req.qualityLevel = .fast   // .balanced was slow enough to look frozen
@@ -66,12 +73,31 @@ enum BackgroundAnalyzer {
                           luminance: nil, reason: .couldNotMeasure)
         }
 
-        guard let stats = sampleBackground(image: image, mask: mask) else {
+        // One render, two grids: the whole frame decides the verdict; the optional region is
+        // measured alongside it for calibration only.
+        let regions = [fullFrame] + (diagnosticRegion.map { [$0] } ?? [])
+        let measured = sampleBackground(image: image, mask: mask, regions: regions)
+        guard let stats = measured.first ?? nil else {
             return Result(ok: false, message: "Is the background a plain, light, shadow-free wall?",
                           luminance: nil, reason: .couldNotMeasure)
         }
 
-        return verdict(for: stats)
+        var result = verdict(for: stats)
+        if measured.count > 1, let regional = measured[1], regional.outlierFraction.isFinite {
+            result.regionOutlierFraction = regional.outlierFraction
+        }
+        return result
+    }
+
+    /// The whole frame, as a unit rectangle in top-down fractions.
+    static let fullFrame = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    /// Where grid sample (`ix`, `iy`) of a `steps` × `steps` grid laid over `region` falls, as
+    /// top-down fractions of the frame. Pure so the geometry is testable.
+    static func samplePoint(ix: Int, iy: Int, steps: Int, in region: CGRect) -> (x: Double, y: Double) {
+        let fx = Double(region.minX) + (Double(ix) + 0.5) / Double(steps) * Double(region.width)
+        let fy = Double(region.minY) + (Double(iy) + 0.5) / Double(steps) * Double(region.height)
+        return (fx, fy)
     }
 
     /// One background pixel. Kept as colour rather than reduced to luminance on the spot,
@@ -202,56 +228,62 @@ enum BackgroundAnalyzer {
                       outlierFraction: stats.outlierFraction)
     }
 
-    /// Samples a grid of points and keeps those the mask marks as background.
-    private static func sampleBackground(image: CIImage, mask: CVPixelBuffer) -> Stats? {
+    /// Samples a grid of points over each region and keeps those the mask marks as
+    /// background. Returns one entry per region, nil where it could not be measured.
+    /// The image is rendered once and shared by every region.
+    private static func sampleBackground(image: CIImage, mask: CVPixelBuffer,
+                                         regions: [CGRect]) -> [Stats?] {
+        let unmeasured = [Stats?](repeating: nil, count: regions.count)
         let extent = image.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
               let cg = ExportPipeline.sharedContext.createCGImage(image, from: extent),
               let data = cg.dataProvider?.data,
-              let ptr = CFDataGetBytePtr(data) else { return nil }
+              let ptr = CFDataGetBytePtr(data) else { return unmeasured }
 
         let bpp = cg.bitsPerPixel / 8
         let bpr = cg.bytesPerRow
         let w = cg.width
         let h = cg.height
-        guard bpp >= 3 else { return nil }
+        guard bpp >= 3 else { return unmeasured }
 
         CVPixelBufferLockBaseAddress(mask, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
         let mw = CVPixelBufferGetWidth(mask)
         let mh = CVPixelBufferGetHeight(mask)
         let mbpr = CVPixelBufferGetBytesPerRow(mask)
-        guard let mbase = CVPixelBufferGetBaseAddress(mask) else { return nil }
+        guard let mbase = CVPixelBufferGetBaseAddress(mask) else { return unmeasured }
         let mptr = mbase.assumingMemoryBound(to: UInt8.self)
 
-        var samples: [Sample] = []
         let steps = 40
-        for iy in 0..<steps {
-            for ix in 0..<steps {
-                let fx = (Double(ix) + 0.5) / Double(steps)
-                let fy = (Double(iy) + 0.5) / Double(steps)
+        return regions.map { region -> Stats? in
+            var samples: [Sample] = []
+            for iy in 0..<steps {
+                for ix in 0..<steps {
+                    let p = samplePoint(ix: ix, iy: iy, steps: steps, in: region)
 
-                // Person mask: high value = person. Sample only background (low mask value).
-                let my = min(mh - 1, Int(fy * Double(mh)))
-                let mx = min(mw - 1, Int(fx * Double(mw)))
-                if mptr[my * mbpr + mx] > 40 { continue }
+                    // Person mask: high value = person. Sample only background (low mask value).
+                    let my = min(mh - 1, max(0, Int(p.y * Double(mh))))
+                    let mx = min(mw - 1, max(0, Int(p.x * Double(mw))))
+                    if mptr[my * mbpr + mx] > 40 { continue }
 
-                let px = min(w - 1, Int(fx * Double(w)))
-                let py = min(h - 1, Int(fy * Double(h)))
-                let off = py * bpr + px * bpp
-                let r = Double(ptr[off]) / 255
-                let g = Double(ptr[off + 1]) / 255
-                let b = Double(ptr[off + 2]) / 255
+                    let px = min(w - 1, max(0, Int(p.x * Double(w))))
+                    let py = min(h - 1, max(0, Int(p.y * Double(h))))
+                    let off = py * bpr + px * bpp
+                    let r = Double(ptr[off]) / 255
+                    let g = Double(ptr[off + 1]) / 255
+                    let b = Double(ptr[off + 2]) / 255
 
-                samples.append(Sample(r: r, g: g, b: b))
+                    samples.append(Sample(r: r, g: g, b: b))
+                }
             }
-        }
 
-        // A share-of-samples statistic is meaningless on a handful of points: at 20 samples
-        // a 2% budget rounds to "no outlier at all is tolerated", so one grid point landing
-        // on the feathered edge of the person mask would condemn the photo. Below this count
-        // the analyser reports that it could not measure, rather than guessing.
-        guard samples.count >= PassportRules.bgMinBackgroundSamples else { return nil }
-        return stats(samples: samples)
+            // A share-of-samples statistic is meaningless on a handful of points: at 20
+            // samples a 2% budget rounds to "no outlier at all is tolerated", so one grid
+            // point landing on the feathered edge of the person mask would condemn the photo.
+            // Below this count the analyser reports that it could not measure, rather than
+            // guessing.
+            guard samples.count >= PassportRules.bgMinBackgroundSamples else { return nil }
+            return stats(samples: samples)
+        }
     }
 }
