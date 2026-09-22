@@ -76,6 +76,46 @@ final class LiveGuidanceTests: XCTestCase {
         XCTAssertNil(LiveGuidance.verticalHint(faceMidY: .infinity))
     }
 
+    // MARK: - Background instruction
+
+    private func background(_ reason: BackgroundAnalyzer.Reason,
+                            share: Double? = nil) -> BackgroundAnalyzer.Result {
+        BackgroundAnalyzer.Result(ok: reason == .plain,
+                                  message: "Background isn't plain — something is behind you, or a shadow is on the wall.",
+                                  luminance: 0.8, reason: reason, outlierFraction: share)
+    }
+
+    /// The live line tells the user what to do, not what the analyser measured. The
+    /// capture screen on 2026-09-14 showed the report sentence verbatim.
+    func testLiveBackgroundLineIsAnInstructionNotTheReportSentence() {
+        let r = background(.notPlain, share: 0.05)
+        let line = LiveGuidance.backgroundInstruction(for: r)
+        XCTAssertNotNil(line)
+        XCTAssertNotEqual(line, r.message)
+        XCTAssertTrue(line?.contains("plain, empty wall") ?? false, "Got: \(line ?? "nil")")
+    }
+
+    /// When the review screen will refuse the photo, the camera says so first.
+    func testHardFindingWarnsOfRejectionBeforeTheShutter() {
+        let hard = background(.notPlain, share: PassportRules.bgOutlierFractionHard)
+        let soft = background(.notPlain, share: PassportRules.bgOutlierFractionHard - 0.01)
+        XCTAssertTrue(LiveGuidance.backgroundInstruction(for: hard)?.contains("rejected") ?? false)
+        XCTAssertFalse(LiveGuidance.backgroundInstruction(for: soft)?.contains("rejected") ?? true)
+    }
+
+    func testEachWallProblemGetsItsOwnInstruction() {
+        let lines = [BackgroundAnalyzer.Reason.notPlain, .tooDark, .tooColoured, .unevenLighting]
+            .compactMap { LiveGuidance.backgroundInstruction(for: background($0, share: 0.05)) }
+        XCTAssertEqual(lines.count, 4)
+        XCTAssertEqual(Set(lines).count, 4, "Two different problems must not read the same.")
+    }
+
+    /// A plain wall, or a wall the device could not measure, puts nothing on the live screen.
+    func testNothingToSayForAPlainOrUnmeasuredWall() {
+        XCTAssertNil(LiveGuidance.backgroundInstruction(for: background(.plain, share: 0)))
+        XCTAssertNil(LiveGuidance.backgroundInstruction(for: background(.couldNotMeasure)))
+    }
+
     /// The tolerance is a named rule now, and it stays looser than the horizontal one.
     func testVerticalToleranceIsLooserThanHorizontal() {
         XCTAssertGreaterThan(PassportRules.verticalCenteringTolerance,

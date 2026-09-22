@@ -42,6 +42,40 @@ enum LiveGuidance {
         return offset > 0 ? "Raise the camera" : "Lower the camera"
     }
 
+    /// What the capture screen tells the user to do about the wall, or nil when there is
+    /// nothing to say.
+    ///
+    /// The live screen used to show the analyser's report sentence — "Background isn't plain
+    /// — something is behind you, or a shadow is on the wall." That describes a problem; the
+    /// person holding the phone needs to know what to do about it, in the few words a capsule
+    /// at the top of a camera view can carry. Each reason gets an instruction.
+    ///
+    /// When the finding is strong enough that the review screen will refuse the photo, the
+    /// live line says so *before* the shutter, because retaking is cheapest while the user is
+    /// still standing there. The grading is `VisionComplianceEngine.backgroundStatus(for:)`
+    /// itself, so the two screens cannot drift apart.
+    ///
+    /// "Could not measure" says nothing live. Segmentation fails on some devices and in poor
+    /// light, and a capsule that reads "Photo checking was cancelled." or asks a question on
+    /// every frame is noise; the report still asks the user to confirm the wall afterwards.
+    static func backgroundInstruction(for result: BackgroundAnalyzer.Result) -> String? {
+        switch result.reason {
+        case .plain, .couldNotMeasure:
+            return nil
+        case .notPlain:
+            if VisionComplianceEngine.backgroundStatus(for: result) == .verifiedFail {
+                return "This background would be rejected — stand against a plain, empty wall"
+            }
+            return "Something is behind you — move to a plain, empty wall"
+        case .tooDark:
+            return "The wall is too dark — find a white wall or add light"
+        case .tooColoured:
+            return "The wall has color — find a white or off-white wall"
+        case .unevenLighting:
+            return "Uneven light on the wall — face a window or a lamp"
+        }
+    }
+
     /// A bad background deliberately does **not** lock the shutter.
     ///
     /// Person segmentation is unavailable on some devices and degrades in poor light, so
