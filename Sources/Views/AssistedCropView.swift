@@ -18,6 +18,8 @@ struct AssistedCropView: View {
     var suggestedChinY: Double? = nil
     /// Reports crown and chin as fractions of image height, measured top-down.
     var onRecheck: (CGFloat, CGFloat) -> Void
+    /// Back to the camera, when the framing cannot produce a compliant crop.
+    var onRetake: () -> Void = {}
 
     @State private var crownY: CGFloat = 0.18
     @State private var chinY: CGFloat = 0.78
@@ -87,13 +89,27 @@ struct AssistedCropView: View {
 
             Spacer()
 
-            Button {
-                onRecheck(min(crownY, chinY), max(crownY, chinY))
-            } label: {
-                Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
+            if headOutOfBand {
+                // The screen above already says "retake from further away" (or closer), and
+                // the export would refuse this framing — ExportPipeline rejects a head outside
+                // the band. Continue used to stay the only button anyway, and led straight to
+                // a "Couldn't prepare the photo" screen. The way forward is the prominent one.
+                Button(action: onRetake) {
+                    Text("Retake photo").font(.headline).frame(maxWidth: .infinity).padding()
+                }
+                .buttonStyle(.borderedProminent)
+                Text("If the lines aren't on your head, drag them — Continue comes back once the head fits.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Button {
+                    onRecheck(min(crownY, chinY), max(crownY, chinY))
+                } label: {
+                    Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasAdjusted)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!hasAdjusted)
         }
         .padding()
         .navigationTitle("Adjust")
@@ -110,6 +126,14 @@ struct AssistedCropView: View {
         .onDisappear {
             rendered = nil
         }
+    }
+
+    /// The guides are placed and the export would put the head outside the 50–69% band.
+    /// Nil prediction (no usable image extent) is not treated as out of band — the export
+    /// screen still has its own failure path for that.
+    private var headOutOfBand: Bool {
+        guard hasAdjusted, let pct = predictedHeadHeightPct else { return false }
+        return !PassportRules.headHeightInBand(pct)
     }
 
     /// What the export would deliver at the current guide positions.

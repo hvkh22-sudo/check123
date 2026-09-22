@@ -39,7 +39,10 @@ struct RootView: View {
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
     enum Route: Hashable {
-        case documentType, capture, review, adjust, done
+        case documentType, capture, review, adjust
+        /// Findings the user exported past travel to the last screen too — by value, because
+        /// the session (and the report with them) is discarded before this screen appears.
+        case done(flagged: [String])
         // The guide positions travel WITH the navigation value, not through separate @State,
         // so the crop can never run with stale (0,0) guides — the "head span too small (0px)"
         // failure. Rounded to keep the value stably Hashable.
@@ -98,7 +101,8 @@ struct RootView: View {
                                          onRecheck: { crownY, chinY in
                             // Carry the guides in the navigation value itself.
                             path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY)))
-                        })
+                        },
+                                         onRetake: { restartAtCapture() })
                     case .export(let cy, let chy):
                         ExportView(source: capturedImage,
                                    crownY: CGFloat(cy),
@@ -106,15 +110,17 @@ struct RootView: View {
                                    // The review screen's warning travels with the photo. Without
                                    // this the export screen said "Ready to export" under a green
                                    // seal for a photo the previous screen had just flagged.
-                                   flagged: report?.results.filter(\.isAdvisoryConcern).map(\.message) ?? [],
+                                   flagged: flaggedFindings,
                                    onDone: {
+                                       // Read before the discard below clears the report.
+                                       let flagged = flaggedFindings
                                        discardSensitiveSession()
                                        path = NavigationPath()
-                                       path.append(Route.done)
+                                       path.append(Route.done(flagged: flagged))
                                    },
                                    onRetake: { restartAtCapture() })
-                    case .done:
-                        DoneView(onRestart: {
+                    case .done(let flagged):
+                        DoneView(flagged: flagged, onRestart: {
                             discardSensitiveSession()
                             path = NavigationPath()
                         })
@@ -147,6 +153,12 @@ struct RootView: View {
                 discardSensitiveSession()
             }
         }
+    }
+
+    /// What the review screen flagged and the user chose to go past. Only the rule's message
+    /// travels — no measurement, no image — so nothing sensitive outlives the session.
+    private var flaggedFindings: [String] {
+        report?.results.filter(\.isAdvisoryConcern).map(\.message) ?? []
     }
 
     private func startCheck(_ image: CIImage) {

@@ -73,11 +73,13 @@ final class ScreenshotTests: XCTestCase {
             return
         }
 
-        // The bottom button carries the verdict: "Looks good — export" when every hard
-        // rule passed, "Fix the items above first" (disabled) when one did not. Waiting
-        // for either is what tells us the spinner resolved.
+        // The bottom button carries the verdict: "Looks good — export" when nothing measured
+        // came back wrong, and a "Retake…" button when something did — "Retake photo" for a
+        // hard failure, "Retake against a plain wall" for a flagged one (PR #16 replaced the
+        // old disabled "Fix the items above first"). Waiting for either is what tells us the
+        // spinner resolved.
         let verdict = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'Looks good' OR label BEGINSWITH 'Fix the items'")
+            NSPredicate(format: "label BEGINSWITH 'Looks good' OR label BEGINSWITH 'Retake'")
         ).firstMatch
         let resolved = verdict.waitForExistence(timeout: 30)
         try shoot("04-review")
@@ -87,12 +89,14 @@ final class ScreenshotTests: XCTestCase {
                           + "within 30s, so the review screen still showed its spinner.")
             return
         }
-        // A sample photo that legitimately fails a hard rule leaves this disabled. That is
-        // the product working correctly, not a harness bug — say so instead of hanging.
-        guard verdict.isEnabled else {
-            manifest.append("SKIPPED 05-crop, 06-export — the seeded photo failed a hard "
-                          + "rule, so the app correctly refused to sell an export. Seed a "
-                          + "compliant photo to reach the crop and export screens.")
+        // A sample photo the app does not pass is the product working correctly, not a
+        // harness bug. The button is enabled either way now, so tapping it blindly would
+        // send the harness back to the camera and lose the photo — read its label instead.
+        guard verdict.label.hasPrefix("Looks good") else {
+            manifest.append("SKIPPED 05-crop, 06-export — the seeded photo did not pass "
+                          + "(\"\(verdict.label)\"), so the app correctly steered toward a "
+                          + "retake. Seed a compliant photo against a plain wall to reach the "
+                          + "crop and export screens.")
             return
         }
         verdict.tap()
@@ -103,7 +107,15 @@ final class ScreenshotTests: XCTestCase {
             return
         }
         try shoot("05-crop")
-        app.buttons["Continue"].tap()
+        // Out of the head-height band the crop screen offers "Retake photo" instead of
+        // Continue, because the export would refuse that framing.
+        let continueButton = app.buttons["Continue"]
+        guard continueButton.exists else {
+            manifest.append("SKIPPED 06-export — at the seeded photo's framing the head falls "
+                          + "outside the 50–69% band, so the crop screen offers a retake.")
+            return
+        }
+        continueButton.tap()
 
         // 6 — Export / paywall.
         if app.navigationBars["Export"].waitForExistence(timeout: 25) {
