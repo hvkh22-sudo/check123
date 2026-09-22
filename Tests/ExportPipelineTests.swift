@@ -247,6 +247,21 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertLessThanOrEqual(right.maxX, 1800)
     }
 
+    /// A side ending in exactly .5 against the far edge used to round one pixel past it,
+    /// and the export then refused its own crop as "not square". Found in review, 2026-09-22.
+    func testSquareAgainstTheFarEdgeNeverOvershootsByARoundingPixel() throws {
+        // Head from 25% to 50% of 2400 px: exactly 600 px, so the side is exactly 937.5.
+        let rect = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                             crownY: 0.25, chinY: 0.50, centerX: 0.95)
+        XCTAssertLessThanOrEqual(rect.maxX, 1800)
+        XCTAssertLessThanOrEqual(rect.maxY, 2400)
+        XCTAssertEqual(rect.width, rect.height)
+        _ = try XCTUnwrap(ExportPipeline.makePassportImage(
+            from: sourceImage(width: 1800, height: 2400),
+            crownY: 0.25, chinY: 0.50, centerX: 0.95),
+            "The export must accept the square it placed itself.")
+    }
+
     /// A non-finite centre falls back to the middle rather than producing a NaN rectangle.
     func testNonFiniteCentreFallsBackToTheMiddle() {
         let nan = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,

@@ -73,12 +73,19 @@ enum ExportPipeline {
         let cx = centerX.isFinite ? min(max(centerX, 0), 1) : 0.5
         // Written as an offset from the old centred origin so that cx = 0.5 is bit-for-bit
         // the placement every existing test was written against.
-        var originX = (w - side) / 2 + (cx - 0.5) * w
-        var originY = top * h - side * marginAboveCrown
-        originX = min(max(originX, 0), w - side)
-        originY = min(max(originY, 0), h - side)
-        return CGRect(x: originX.rounded(), y: originY.rounded(),
-                      width: side.rounded(), height: side.rounded())
+        let originX = (w - side) / 2 + (cx - 0.5) * w
+        let originY = top * h - side * marginAboveCrown
+        // Round the side first and clamp the rounded origin against it. Clamping first and
+        // rounding origin and side separately overshot by a pixel whenever the side ended in
+        // exactly .5 against the far edge: 1800 × 2400 with the head from 25% to 50% gives a
+        // 937.5 side and an 862.5 origin, which rounded to 938 and 863 — a square ending at
+        // 1801, which `make` then refused as "not square". Centring on the face is what made
+        // the right edge reachable; the bottom edge always had the same flaw. Wherever the
+        // old arithmetic did not overshoot, this gives the same rectangle.
+        let s = side.rounded()
+        return CGRect(x: min(max(originX.rounded(), 0), w - s),
+                      y: min(max(originY.rounded(), 0), h - s),
+                      width: s, height: s)
     }
 
     /// What a crop rectangle actually delivers, as opposed to what it was asked for.

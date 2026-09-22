@@ -176,7 +176,7 @@ struct ComplianceReviewView: View {
                     // %.0f, not Int(m): Int(NaN/Inf) is a hard runtime trap.
                     Text("\(String(format: "%.0f", m))\(u)").font(.caption).foregroundStyle(.secondary)
                 }
-                if BuildChannel.isPreRelease, let d = r.diagnostic {
+                if BuildChannel.showsCalibration, let d = r.diagnostic {
                     Text(d).font(.caption2.monospaced()).foregroundStyle(.tertiary)
                 }
             }

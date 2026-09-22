@@ -14,6 +14,13 @@ enum BuildChannel {
         return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
         #endif
     }
+
+    /// Whether to show calibration read-outs. Pre-release only, and never while the App Store
+    /// screenshot harness is driving the app: that runs `xcodebuild test`, a Debug build, and
+    /// would otherwise put a calibration line into the store listing.
+    static var showsCalibration: Bool {
+        isPreRelease && !ProcessInfo.processInfo.arguments.contains("-screenshots")
+    }
 }
 
 /// StoreKit 2 purchase manager for the one-time export unlock (no subscription).

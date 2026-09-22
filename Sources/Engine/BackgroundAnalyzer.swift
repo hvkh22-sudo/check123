@@ -255,7 +255,9 @@ enum BackgroundAnalyzer {
         let mptr = mbase.assumingMemoryBound(to: UInt8.self)
 
         let steps = 40
-        return regions.map { region -> Stats? in
+        // `ptr` points into `data`, and Swift does not promise `data` outlives its last named
+        // use; in an optimised build it could be released while the grid is still reading.
+        return withExtendedLifetime(data) { regions.map { region -> Stats? in
             var samples: [Sample] = []
             for iy in 0..<steps {
                 for ix in 0..<steps {
@@ -284,6 +286,6 @@ enum BackgroundAnalyzer {
             // guessing.
             guard samples.count >= PassportRules.bgMinBackgroundSamples else { return nil }
             return stats(samples: samples)
-        }
+        } }
     }
 }

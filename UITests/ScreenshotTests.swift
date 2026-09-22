@@ -38,6 +38,9 @@ final class ScreenshotTests: XCTestCase {
         // Pin the language so a runner locale change cannot silently produce a set in
         // another language than the listing.
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        // Keeps pre-release calibration read-outs out of the store screenshots
+        // (see BuildChannel.showsCalibration).
+        app.launchArguments += ["-screenshots"]
         app.launch()
 
         // 1 — Intro. The honest-disclosure screen; also the only place the privacy claim
