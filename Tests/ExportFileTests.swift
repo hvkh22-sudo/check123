@@ -22,6 +22,22 @@ final class ExportFileTests: XCTestCase {
         XCTAssertEqual(CGImageSourceGetType(source) as String?, "public.jpeg")
     }
 
+    /// The privacy policy says nothing leaves the phone but the photo the user shares. That
+    /// includes what is *inside* the file: no GPS, no capture time, no camera make. Both input
+    /// paths rebuild the image from raw pixels before it reaches the export, so nothing is
+    /// there to carry over — this pins it.
+    func testTheSharedFileCarriesNoLocationOrCaptureMetadata() throws {
+        let file = try XCTUnwrap(PassportPhotoFile(image: try exportedImage()))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(file.jpeg as CFData, nil))
+        let props = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        XCTAssertNil(props[kCGImagePropertyGPSDictionary], "No location in an exported passport photo.")
+        let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        XCTAssertNil(exif?[kCGImagePropertyExifDateTimeOriginal])
+        let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+        XCTAssertNil(tiff?[kCGImagePropertyTIFFMake])
+        XCTAssertNil(tiff?[kCGImagePropertyTIFFModel])
+    }
+
     /// The file has the pixels the export screen's "1,200 × 1,200 px" label claims — not a
     /// screen-scale multiple of them.
     func testTheSharedFileHasTheExportedPixelSize() throws {
