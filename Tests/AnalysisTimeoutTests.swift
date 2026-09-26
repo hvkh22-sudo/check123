@@ -75,4 +75,52 @@ final class AnalysisTimeoutTests: XCTestCase {
         XCTAssertFalse(gate.claim())
         XCTAssertFalse(gate.claim())
     }
+
+    // MARK: - Cancellation reaches the analysis
+
+    /// Records whether cancellation reached it, and finishes only when cancelled or after a
+    /// long wait — the shape of a cooperative engine holding a photo.
+    private final class CancellationWitness: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _cancelled = false
+        var cancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
+        func mark() { lock.lock(); _cancelled = true; lock.unlock() }
+    }
+
+    private struct CooperativeEngine: ComplianceEngine {
+        let witness: CancellationWitness
+        func analyze(_ image: CIImage) async -> ComplianceReport {
+            for _ in 0..<200 {
+                if Task.isCancelled { witness.mark(); break }
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+            return ComplianceReport(results: [], engineVersion: "cooperative",
+                                    suggestedCrownY: nil, suggestedChinY: nil)
+        }
+    }
+
+    /// Cancelling the caller must cancel the detached analysis, so a discarded photo is not
+    /// held until Vision returns. Before 2026-09-26 the detached task had no parent and never
+    /// heard about the cancellation.
+    func testCancellingTheCallerCancelsTheAnalysis() async {
+        let witness = CancellationWitness()
+        let engine = CooperativeEngine(witness: witness)
+        let task = Task { await RootView.analyzeWithTimeout(engine, image, seconds: 5) }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        _ = await task.value
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(witness.cancelled, "The analysis kept running after its caller was cancelled.")
+    }
+
+    /// When the timeout wins, the losing analysis is cancelled rather than left to hold the
+    /// image until it finishes on its own.
+    func testTimeoutCancelsTheLosingAnalysis() async {
+        let witness = CancellationWitness()
+        let engine = CooperativeEngine(witness: witness)
+        let report = await RootView.analyzeWithTimeout(engine, image, seconds: 0.15)
+        XCTAssertEqual(report.engineVersion, "timeout")
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(witness.cancelled, "The timed-out analysis was left running.")
+    }
 }

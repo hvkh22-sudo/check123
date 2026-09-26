@@ -244,7 +244,8 @@ struct VisionComplianceEngine: ComplianceEngine {
             status: Self.backgroundStatus(for: bg),
             measured: bgMeasure.value, unit: bgMeasure.unit,
             message: bg.message,
-            diagnostic: Self.backgroundDiagnostic(for: bg)))
+            // Built only where it can be shown; a release build never holds the string.
+            diagnostic: BuildChannel.showsCalibration ? Self.backgroundDiagnostic(for: bg) : nil))
 
         // Still honest user-confirm items (not machine-verifiable)
         results.append(RuleResult(id: "face.glasses", status: .confirm, measured: nil, unit: nil,
@@ -299,5 +300,8 @@ struct VisionComplianceEngine: ComplianceEngine {
 
 private extension Double {
     /// Clamps to the 0...1 fraction range used for guide positions.
-    func clamped01() -> Double { Swift.min(Swift.max(self, 0), 1) }
+    /// A non-finite value clamps to the midpoint rather than passing through as NaN: both
+    /// comparisons against NaN are false, so `min(max(nan, 0), 1)` is NaN, and a NaN crown or
+    /// centre would otherwise ride along in the navigation value.
+    func clamped01() -> Double { isFinite ? Swift.min(Swift.max(self, 0), 1) : 0.5 }
 }

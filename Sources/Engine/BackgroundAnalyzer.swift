@@ -139,6 +139,9 @@ enum BackgroundAnalyzer {
     /// wall and half wardrobe puts the interpolated anchor in the empty space between them,
     /// leaving both halves equidistant from it and neither one an outlier.
     static func lowerMedian(_ values: [Double]) -> Double {
+        // The only caller guards for emptiness, but this is internal and reachable from tests;
+        // an empty input reports "could not measure" via NaN rather than trapping on index -1.
+        guard !values.isEmpty else { return .nan }
         let sorted = values.sorted()
         return sorted[(sorted.count - 1) / 2]
     }

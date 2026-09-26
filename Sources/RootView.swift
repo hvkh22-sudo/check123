@@ -217,28 +217,45 @@ struct RootView: View {
     /// device hit exactly that on 2026-08-23, and the owner reported it had happened before.
     ///
     /// Resuming a continuation from whichever task finishes first genuinely bounds the wait.
-    /// The losing task is left to run itself out — an orphaned Vision request holding one
-    /// image for a few seconds is a far smaller problem than a screen the user cannot leave.
+    ///
+    /// Cancellation is forwarded by hand. `Task.detached` starts a task with no parent, so
+    /// cancelling the caller — which is what `discardSensitiveSession` does when the user
+    /// retakes, or when iOS reclaims memory while the app is hidden — used to cancel only this
+    /// wrapper. The detached analysis, and `VisionComplianceEngine`'s own `onCancel` that
+    /// aborts the Vision requests, never heard about it, so a discarded photo stayed in memory
+    /// until Vision finished with it: seconds normally, unbounded in the stall case this
+    /// function exists to survive. The privacy re-check on 2026-09-26 found it. The analysis
+    /// task is now cancelled when the caller is cancelled and when the timeout wins.
     static func analyzeWithTimeout(_ engine: ComplianceEngine,
                                    _ image: CIImage,
                                    seconds: Double) async -> ComplianceReport {
         let gate = SingleResume()
-        return await withCheckedContinuation { continuation in
-            Task.detached {
-                let report = await engine.analyze(image)
-                if gate.claim() { continuation.resume(returning: report) }
-            }
-            Task.detached {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                if gate.claim() {
-                    continuation.resume(returning: ComplianceReport(
-                        results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
-                                             measured: nil, unit: nil,
-                                             message: "Checking took too long — please retake in better light.")],
-                        engineVersion: "timeout"))
+        let analysis = Task.detached { () -> ComplianceReport in
+            await engine.analyze(image)
+        }
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                Task.detached {
+                    let report = await analysis.value
+                    if gate.claim() { continuation.resume(returning: report) }
+                }
+                Task.detached {
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    if gate.claim() {
+                        // The orphaned Vision request must not keep the photo any longer than
+                        // the screen does.
+                        analysis.cancel()
+                        continuation.resume(returning: ComplianceReport(
+                            results: [RuleResult(id: "engine.timeout", status: .verifiedFail,
+                                                 measured: nil, unit: nil,
+                                                 message: "Checking took too long — please retake in better light.")],
+                            engineVersion: "timeout"))
+                    }
                 }
             }
-        }
+        }, onCancel: {
+            analysis.cancel()
+        })
     }
 
     static func shouldDiscardSession(
