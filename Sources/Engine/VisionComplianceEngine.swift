@@ -64,6 +64,39 @@ struct VisionComplianceEngine: ComplianceEngine {
         return (lum * 100, "%")
     }
 
+    /// The square the export would keep at the suggested guides, as a unit rectangle in
+    /// top-down fractions of the analysed image. Nil when the guides are unusable. Used only
+    /// for the background calibration read-out — see `BackgroundAnalyzer.Result.regionOutlierFraction`.
+    static func backgroundRegion(crownY: Double, chinY: Double, centerX: Double,
+                                 imageWidth: CGFloat, imageHeight: CGFloat) -> CGRect? {
+        guard imageWidth > 0, imageHeight > 0, imageWidth.isFinite, imageHeight.isFinite,
+              chinY - crownY > 0.02 else { return nil }
+        let rect = ExportPipeline.squareCrop(sourceWidth: imageWidth, sourceHeight: imageHeight,
+                                             crownY: CGFloat(crownY), chinY: CGFloat(chinY),
+                                             centerX: CGFloat(centerX))
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return CGRect(x: rect.minX / imageWidth, y: rect.minY / imageHeight,
+                      width: rect.width / imageWidth, height: rect.height / imageHeight)
+    }
+
+    /// The calibration line under the background row in pre-release builds: the share of
+    /// samples that did not look like the wall, over the whole frame (what the verdict uses)
+    /// and over the square the export keeps (what the passport office will see).
+    ///
+    /// `bgOutlierFractionHard` and the advisory budget are uncalibrated, and whether the
+    /// verdict should measure the square instead of the frame is undecided. One device
+    /// session photographing a clean wall and a cluttered one, with this line visible,
+    /// answers both. Remove before the App Store submission build — App Review runs in the
+    /// sandbox and would see it.
+    static func backgroundDiagnostic(for result: BackgroundAnalyzer.Result) -> String? {
+        guard let frame = result.outlierFraction, frame.isFinite else { return nil }
+        let framePct = String(format: "%.1f", frame * 100)
+        guard let crop = result.regionOutlierFraction, crop.isFinite else {
+            return "calibration · frame \(framePct)%"
+        }
+        return "calibration · frame \(framePct)% · crop \(String(format: "%.1f", crop * 100))%"
+    }
+
     /// Decides the head-tilt rule from the angles Vision reported.
     ///
     /// Pure and internal so the "not measured" path is testable without a camera. That path
@@ -187,15 +220,31 @@ struct VisionComplianceEngine: ComplianceEngine {
             measured: nil, unit: nil,
             message: "Head size — we'll frame it correctly on the next step."))
 
+        // Suggested guide positions so the Adjust screen starts placed, not blank. Vision's
+        // box runs chin→hairline; the crown sits above it by ~35% of the box height.
+        // Coordinates are bottom-left; convert to top-down fractions. Computed before the
+        // background check so it can also measure the square the export will keep.
+        let box = face.boundingBox
+        let chinY = (1 - Double(box.minY)).clamped01()
+        let crownY = (1 - Double(box.maxY) - 0.35 * Double(box.height)).clamped01()
+        // Vision's x runs left to right like the export's CGImage space, so it needs no flip —
+        // only y is bottom-up. Both are measured on the same upright image.
+        let centerX = Double(box.midX).clamped01()
+
         // Background — now measured on-device (person segmentation), not self-reported.
         guard !Task.isCancelled else { return cancelledReport() }
-        let bg = BackgroundAnalyzer.analyze(image, cancellation: cancellation)
+        let region = Self.backgroundRegion(crownY: crownY, chinY: chinY, centerX: centerX,
+                                           imageWidth: image.extent.width,
+                                           imageHeight: image.extent.height)
+        let bg = BackgroundAnalyzer.analyze(image, cancellation: cancellation,
+                                            diagnosticRegion: region)
         let bgMeasure = Self.backgroundMeasure(for: bg)
         results.append(RuleResult(
             id: "bg.plain",
             status: Self.backgroundStatus(for: bg),
             measured: bgMeasure.value, unit: bgMeasure.unit,
-            message: bg.message))
+            message: bg.message,
+            diagnostic: Self.backgroundDiagnostic(for: bg)))
 
         // Still honest user-confirm items (not machine-verifiable)
         results.append(RuleResult(id: "face.glasses", status: .confirm, measured: nil, unit: nil,
@@ -203,16 +252,10 @@ struct VisionComplianceEngine: ComplianceEngine {
         results.append(RuleResult(id: "meta.unedited", status: .confirm, measured: nil, unit: nil,
                                   message: "No filters, beauty, or AI edits (they get rejected)."))
 
-        // Suggested guide positions so the Adjust screen starts placed, not blank. Vision's
-        // box runs chin→hairline; the crown sits above it by ~35% of the box height.
-        // Coordinates are bottom-left; convert to top-down fractions.
-        let box = face.boundingBox
-        let chinY = (1 - Double(box.minY)).clamped01()
-        let crownY = (1 - Double(box.maxY) - 0.35 * Double(box.height)).clamped01()
-
         var out = report(results)
         out.suggestedChinY = chinY
         out.suggestedCrownY = crownY
+        out.suggestedCenterX = centerX
         return out
     }
 

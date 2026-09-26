@@ -1,6 +1,28 @@
 import Foundation
 import StoreKit
 
+/// Whether this build can only reach testers: Xcode debug builds and TestFlight.
+///
+/// App Store builds ship a receipt named `receipt`; TestFlight builds ship `sandboxReceipt`.
+/// **App Review also runs against the sandbox**, so anything gated on this is visible to the
+/// reviewer too.
+enum BuildChannel {
+    static var isPreRelease: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
+
+    /// Whether to show calibration read-outs. Pre-release only, and never while the App Store
+    /// screenshot harness is driving the app: that runs `xcodebuild test`, a Debug build, and
+    /// would otherwise put a calibration line into the store listing.
+    static var showsCalibration: Bool {
+        isPreRelease && !ProcessInfo.processInfo.arguments.contains("-screenshots")
+    }
+}
+
 /// StoreKit 2 purchase manager for the one-time export unlock (no subscription).
 ///
 /// The product must be configured in App Store Connect (id below). Before it exists,
@@ -43,13 +65,7 @@ final class Store: ObservableObject {
     /// unlock, sees a working app, and approves it — while every paying customer meets
     /// "The store is unavailable right now". The gate protects revenue from leaking; it does
     /// not protect the launch from a store that never came up. See QA-B7.
-    private static var allowsTestUnlock: Bool {
-        #if DEBUG
-        return true
-        #else
-        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
-        #endif
-    }
+    private static var allowsTestUnlock: Bool { BuildChannel.isPreRelease }
 
     func load() async {
         do {
@@ -79,6 +95,15 @@ final class Store: ObservableObject {
     /// Attempts the purchase. Returns true when the export may be unlocked.
     func purchase() async -> Bool {
         errorMessage = nil
+
+        // The product can fail to load when the screen opens — a flaky connection, or an empty
+        // result. The message below says "try again", and until this reload trying again could
+        // never work: every tap re-read the same nil and repeated the message until the user
+        // left the screen and came back.
+        if product == nil {
+            await load()
+            if purchased { return true }   // the reload found an existing purchase
+        }
 
         guard let product else {
             if Self.allowsTestUnlock {

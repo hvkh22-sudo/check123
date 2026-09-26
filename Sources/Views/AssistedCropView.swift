@@ -18,6 +18,8 @@ struct AssistedCropView: View {
     var suggestedChinY: Double? = nil
     /// Reports crown and chin as fractions of image height, measured top-down.
     var onRecheck: (CGFloat, CGFloat) -> Void
+    /// Back to the camera, when the framing cannot produce a compliant crop.
+    var onRetake: () -> Void = {}
 
     @State private var crownY: CGFloat = 0.18
     @State private var chinY: CGFloat = 0.78
@@ -51,7 +53,22 @@ struct AssistedCropView: View {
             }
             .frame(maxHeight: 360)
 
-            if hasAdjusted, let pct = predictedHeadHeightPct {
+            if guidesCollapsed {
+                // Both lines on one spot is a placement problem, not a distance problem. The
+                // "too far — retake from closer" branch below used to catch it, which was the
+                // wrong advice; the export itself rejects it as unusable guides.
+                Text("Line up your head")
+                    .font(.headline).foregroundStyle(.secondary)
+                Text("The two lines are on top of each other — drag the top one to the top of your head and the bottom one to your chin.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if lacksDetail {
+                Label("Not enough detail", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline).foregroundStyle(.orange)
+                Text("At this framing the photo would come out smaller than the \(PassportRules.pixelMin) × \(PassportRules.pixelMin) px minimum. Move closer to the camera and retake.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else if hasAdjusted, let pct = predictedHeadHeightPct {
                 // This used to claim "Head will be sized correctly" unconditionally, on the
                 // stated grounds that the export re-frames the head "in-range by
                 // construction". That is only true while the ideal square fits inside the
@@ -87,13 +104,27 @@ struct AssistedCropView: View {
 
             Spacer()
 
-            Button {
-                onRecheck(min(crownY, chinY), max(crownY, chinY))
-            } label: {
-                Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
+            if cannotExport {
+                // The screen above already says "retake from further away" (or closer), and
+                // the export would refuse this framing — ExportPipeline rejects a head outside
+                // the band. Continue used to stay the only button anyway, and led straight to
+                // a "Couldn't prepare the photo" screen. The way forward is the prominent one.
+                Button(action: onRetake) {
+                    Text("Retake photo").font(.headline).frame(maxWidth: .infinity).padding()
+                }
+                .buttonStyle(.borderedProminent)
+                Text("If the lines aren't on your head, drag them — Continue comes back once the head fits.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Button {
+                    onRecheck(min(crownY, chinY), max(crownY, chinY))
+                } label: {
+                    Text("Continue").font(.headline).frame(maxWidth: .infinity).padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasAdjusted || guidesCollapsed)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!hasAdjusted)
         }
         .padding()
         .navigationTitle("Adjust")
@@ -110,6 +141,30 @@ struct AssistedCropView: View {
         .onDisappear {
             rendered = nil
         }
+    }
+
+    /// Both guides on (almost) the same line. Same threshold as the export's own
+    /// "the crown and chin lines are on top of each other" rejection.
+    private var guidesCollapsed: Bool {
+        hasAdjusted && abs(chinY - crownY) <= 0.02
+    }
+
+    /// The crop at these guides would come out under `PassportRules.pixelMin` real pixels.
+    private var lacksDetail: Bool {
+        guard hasAdjusted, !guidesCollapsed, let extent = image?.extent,
+              !extent.isInfinite, extent.width > 0, extent.height > 0 else { return false }
+        return !ExportPipeline.predictedHasEnoughDetail(sourceWidth: extent.width,
+                                                        sourceHeight: extent.height,
+                                                        crownY: crownY, chinY: chinY)
+    }
+
+    /// The guides are placed and the export would refuse this framing — head outside the
+    /// 50–69% band, or too few real pixels. Nil prediction (no usable image extent) is not
+    /// treated as refusable — the export screen still has its own failure path for that.
+    /// Collapsed guides are not either: dragging them apart is the fix, not a retake.
+    private var cannotExport: Bool {
+        guard hasAdjusted, !guidesCollapsed, let pct = predictedHeadHeightPct else { return false }
+        return lacksDetail || !PassportRules.headHeightInBand(pct)
     }
 
     /// What the export would deliver at the current guide positions.

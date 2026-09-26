@@ -67,6 +67,7 @@ final class LiveBackgroundSampler: @unchecked Sendable {
         // path too meant a run of degenerate frames silently pushed the next real measurement
         // out by a further interval each time.
         lastRun = Date()
-        return .measured(result.ok ? nil : result.message)
+        // An instruction, not the report's description — see `LiveGuidance.backgroundInstruction`.
+        return .measured(LiveGuidance.backgroundInstruction(for: result))
     }
 }

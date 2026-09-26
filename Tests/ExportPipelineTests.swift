@@ -193,6 +193,92 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertTrue(ExportPipeline.rejection(for: tooSmall).contains("closer"))
     }
 
+    // MARK: - Resolution, predicted
+
+    /// The Adjust screen's prediction and the export agree about resolution, so that screen
+    /// can no longer show a green tick and Continue for a crop the export will refuse.
+    func testDetailPredictionAgreesWithTheExport() {
+        let cases: [(w: CGFloat, h: CGFloat, crown: CGFloat, chin: CGFloat)] = [
+            (1800, 2400, 0.30, 0.55),   // ~938 px square: enough
+            (1200, 1600, 0.40, 0.60),   // 500 px square: under the 600 px minimum
+        ]
+        for c in cases {
+            let predicted = ExportPipeline.predictedHasEnoughDetail(
+                sourceWidth: c.w, sourceHeight: c.h, crownY: c.crown, chinY: c.chin)
+            let exported = ExportPipeline.make(from: sourceImage(width: c.w, height: c.h),
+                                               crownY: c.crown, chinY: c.chin).image != nil
+            XCTAssertEqual(predicted, exported, "\(c)")
+        }
+        XCTAssertTrue(ExportPipeline.predictedHasEnoughDetail(
+            sourceWidth: 1800, sourceHeight: 2400, crownY: 0.30, chinY: 0.55))
+        XCTAssertFalse(ExportPipeline.predictedHasEnoughDetail(
+            sourceWidth: 1200, sourceHeight: 1600, crownY: 0.40, chinY: 0.60))
+    }
+
+    // MARK: - Horizontal placement
+
+    /// The square is centred on the face, not on the photo. A face 9% left of centre passes
+    /// "Face is centered", and used to come out about a sixth of the square off-centre.
+    func testSquareIsCentredOnTheFaceNotOnThePhoto() {
+        // 1800 × 2400 portrait, head from 30% to 55% of the height: a 600 px head, ~938 px square.
+        let rect = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                             crownY: 0.30, chinY: 0.55, centerX: 0.41)
+        XCTAssertEqual(rect.midX, 0.41 * 1800, accuracy: 1.0,
+                       "The face's midpoint is the square's midpoint.")
+        XCTAssertEqual(rect.width, rect.height)
+    }
+
+    /// 0.5 is the old centred placement, so nothing without a detected face moves.
+    func testCentreFallbackReproducesTheOldPlacement() {
+        let w: CGFloat = 1800, h: CGFloat = 2400
+        let rect = ExportPipeline.squareCrop(sourceWidth: w, sourceHeight: h,
+                                             crownY: 0.30, chinY: 0.55)
+        let side = 0.25 * h / ExportPipeline.targetHeadFraction
+        XCTAssertEqual(rect.minX, (w - side) / 2, accuracy: 1.0)
+    }
+
+    /// A face near an edge still gets a square inside the photo — pushed in, never cut off.
+    func testSquareNearAnEdgeIsClampedInsideThePhoto() {
+        let left = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                             crownY: 0.30, chinY: 0.55, centerX: 0.02)
+        XCTAssertEqual(left.minX, 0)
+        let right = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                              crownY: 0.30, chinY: 0.55, centerX: 0.98)
+        XCTAssertLessThanOrEqual(right.maxX, 1800)
+    }
+
+    /// A side ending in exactly .5 against the far edge used to round one pixel past it,
+    /// and the export then refused its own crop as "not square". Found in review, 2026-09-22.
+    func testSquareAgainstTheFarEdgeNeverOvershootsByARoundingPixel() throws {
+        // Head from 25% to 50% of 2400 px: exactly 600 px, so the side is exactly 937.5.
+        let rect = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                             crownY: 0.25, chinY: 0.50, centerX: 0.95)
+        XCTAssertLessThanOrEqual(rect.maxX, 1800)
+        XCTAssertLessThanOrEqual(rect.maxY, 2400)
+        XCTAssertEqual(rect.width, rect.height)
+        _ = try XCTUnwrap(ExportPipeline.makePassportImage(
+            from: sourceImage(width: 1800, height: 2400),
+            crownY: 0.25, chinY: 0.50, centerX: 0.95),
+            "The export must accept the square it placed itself.")
+    }
+
+    /// A non-finite centre falls back to the middle rather than producing a NaN rectangle.
+    func testNonFiniteCentreFallsBackToTheMiddle() {
+        let nan = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                            crownY: 0.30, chinY: 0.55, centerX: .nan)
+        let mid = ExportPipeline.squareCrop(sourceWidth: 1800, sourceHeight: 2400,
+                                            crownY: 0.30, chinY: 0.55)
+        XCTAssertEqual(nan, mid)
+    }
+
+    /// End to end: an off-centre face still renders to a compliant square.
+    func testOffCentreFaceStillExportsASquare() throws {
+        let img = try XCTUnwrap(ExportPipeline.makePassportImage(
+            from: sourceImage(width: 1800, height: 2400),
+            crownY: 0.30, chinY: 0.55, centerX: 0.35))
+        XCTAssertEqual(img.extent.width, img.extent.height, accuracy: 0.5)
+    }
+
     func testInfiniteExtentIsRejected() {
         XCTAssertNil(ExportPipeline.makePassportImage(
             from: CIImage(color: .gray), crownY: 0.2, chinY: 0.6),

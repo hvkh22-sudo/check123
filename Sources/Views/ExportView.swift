@@ -1,6 +1,31 @@
 import SwiftUI
 import CoreImage
 import UIKit
+import UniformTypeIdentifiers
+import CoreTransferable
+
+/// The file the customer receives: JPEG bytes of the rendered square, at its own pixel size.
+///
+/// The export used to share a SwiftUI `Image`, which left both the file type and the pixel
+/// size to SwiftUI's own transfer representation — something this app never measured. If
+/// that renders at screen scale, a 1200 px photo leaves as a 3600 px file, and the
+/// government uploader accepts JPG, JPEG, PNG, HEIC or HEIF only between 54 KB and 10 MB
+/// (travel.state.gov, "Uploading a Digital Photo", updated 2026-05-04). Encoding here makes
+/// both facts the app's own: a JPEG, exactly as many pixels as the on-screen label says.
+struct PassportPhotoFile: Transferable {
+    let jpeg: Data
+
+    /// Nil only if encoding fails; the caller then falls back to sharing the image as before
+    /// rather than leaving a paying customer without a Save button.
+    init?(image: UIImage, quality: CGFloat = 0.92) {
+        guard let data = image.jpegData(compressionQuality: quality) else { return nil }
+        jpeg = data
+    }
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .jpeg) { $0.jpeg }
+    }
+}
 
 /// Screen 6 — export / paywall.
 ///
@@ -17,6 +42,8 @@ struct ExportView: View {
     let source: CIImage?
     var crownY: CGFloat = 0
     var chinY: CGFloat = 0
+    /// The face's horizontal midpoint; the square is centred on it. See `ExportPipeline.squareCrop`.
+    var centerX: CGFloat = 0.5
     /// Findings the review screen showed as warnings and the user chose to go past. They
     /// are repeated here, on the screen that takes the money, because "Ready to export"
     /// under a green seal is an approval, and the app has not given one.
@@ -27,6 +54,8 @@ struct ExportView: View {
     @StateObject private var store = Store()
     @State private var isPurchasing = false
     @State private var renderedImage: UIImage?
+    /// Encoded once when the render lands, not on every body pass. Cleared with the image.
+    @State private var exportFile: PassportPhotoFile?
     @State private var isCropped = false
     @State private var failureReason: String?
     @State private var preparing = true
@@ -62,11 +91,11 @@ struct ExportView: View {
         guard let source else {
             failureReason = "no photo to prepare"; isCropped = false; preparing = false; return
         }
-        let cy = crownY, chy = chinY
+        let cy = crownY, chy = chinY, cx = centerX
         let renderTask = Task.detached { () -> (image: UIImage?, reason: String?) in
             for attempt in 1...3 {
                 guard !Task.isCancelled else { return (nil, "cancelled") }
-                let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy)
+                let r = ExportPipeline.make(from: source, crownY: cy, chinY: chy, centerX: cx)
                 if let img = r.image { return (Self.render(img), nil) }
                 if attempt == 3 { return (nil, r.reason) }
             }
@@ -80,6 +109,7 @@ struct ExportView: View {
         guard !Task.isCancelled else { return }
 
         renderedImage = outcome.image
+        exportFile = outcome.image.flatMap { PassportPhotoFile(image: $0) }
         isCropped = outcome.image != nil
         failureReason = isCropped ? nil : outcome.reason
         preparing = false
@@ -157,9 +187,33 @@ struct ExportView: View {
                 // live inside the branch below, so a returning customer who had reinstalled
                 // had to shoot a photo that passed every check and cropped successfully before
                 // any restore control existed at all.
-                if !unlocked { restoreButton }
+                if unlocked {
+                    Label("Export unlocked", systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    restoreButton
+                }
+                // The error used to be shown only in the paywall branch below, so a restore that
+                // failed here — while preparing, or after "Couldn't prepare the photo" — said
+                // nothing at all.
+                if let message = store.errorMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
             } else if unlocked {
-                if let ui = renderedImage {
+                if let ui = renderedImage, let file = exportFile {
+                    ShareLink(item: file,
+                              preview: SharePreview("Passport photo", image: Image(uiImage: ui))) {
+                        Label("Save / Share", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if let ui = renderedImage {
+                    // Encoding failed — share the image the old way rather than show nothing.
                     ShareLink(item: Image(uiImage: ui),
                               preview: SharePreview("Passport photo", image: Image(uiImage: ui))) {
                         Label("Save / Share", systemImage: "square.and.arrow.up")
@@ -174,6 +228,7 @@ struct ExportView: View {
                 // than the app assuming it.
                 Button("I've saved it — done") {
                     renderedImage = nil
+                    exportFile = nil
                     onDone()
                 }
             } else {
@@ -222,6 +277,7 @@ struct ExportView: View {
         }
         .onDisappear {
             renderedImage = nil
+            exportFile = nil
         }
     }
 

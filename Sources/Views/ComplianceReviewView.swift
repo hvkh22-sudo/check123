@@ -20,6 +20,8 @@ struct ComplianceReviewView: View {
     /// Measured by the phone and not liked. Distinct from the manual asks below — a
     /// measurement that came back wrong is a finding, not a checkbox.
     private var flagged: [RuleResult] { report.results.filter(\.isAdvisoryConcern) }
+    /// Checks the phone normally makes but could not make on this photo.
+    private var unchecked: [RuleResult] { report.uncheckedMachineRules }
     /// Things the phone cannot measure and asks the user to confirm.
     private var manual: [RuleResult] {
         report.results.filter { ($0.status == .assisted || $0.status == .confirm) && !$0.isAdvisoryConcern }
@@ -82,7 +84,10 @@ struct ComplianceReviewView: View {
                 Button("Export anyway — it may be rejected", action: onContinue)
                     .font(.footnote)
             case .clean:
-                prominent("Looks good — export", action: onContinue)
+                // "Looks good" is a claim. When a check never ran it is not one the app can
+                // make, so the button just says where it goes.
+                prominent(unchecked.isEmpty ? "Looks good — export" : "Continue to export",
+                          action: onContinue)
             }
         }
         .padding()
@@ -125,7 +130,7 @@ struct ComplianceReviewView: View {
         switch report.reviewVerdict {
         case .blocked: return "xmark.octagon.fill"
         case .advisory: return "exclamationmark.triangle.fill"
-        case .clean: return "checkmark.seal.fill"
+        case .clean: return unchecked.isEmpty ? "checkmark.seal.fill" : "checkmark.circle.fill"
         }
     }
 
@@ -141,7 +146,7 @@ struct ComplianceReviewView: View {
         switch report.reviewVerdict {
         case .blocked: return "Not ready — retake"
         case .advisory: return "Not ready yet"
-        case .clean: return "Passed every automatic check"
+        case .clean: return unchecked.isEmpty ? "Passed every automatic check" : "No problems found"
         }
     }
 
@@ -152,6 +157,10 @@ struct ComplianceReviewView: View {
         case .advisory(let count):
             return "Your phone flagged \(count == 1 ? "something" : "\(count) things") it can't be certain about — but a passport office would be. Retake against a plain, light wall."
         case .clean:
+            if !unchecked.isEmpty {
+                let n = unchecked.count
+                return "\(passed) of \(total + n) on-device checks passed; \(n == 1 ? "one" : "\(n)") couldn't run on this photo. Confirm \(n == 1 ? "it" : "them") yourself below, then set head size."
+            }
             return "\(passed) of \(total) on-device checks passed. Confirm the manual items below, then set head size."
         }
     }
@@ -166,6 +175,9 @@ struct ComplianceReviewView: View {
                 if let m = r.measured, let u = r.unit, m.isFinite {
                     // %.0f, not Int(m): Int(NaN/Inf) is a hard runtime trap.
                     Text("\(String(format: "%.0f", m))\(u)").font(.caption).foregroundStyle(.secondary)
+                }
+                if BuildChannel.showsCalibration, let d = r.diagnostic {
+                    Text(d).font(.caption2.monospaced()).foregroundStyle(.tertiary)
                 }
             }
         }

@@ -18,6 +18,9 @@ struct RuleResult: Identifiable, Codable, Equatable {
     var measured: Double?  // measured value when applicable (e.g. 61.5)
     var unit: String?      // e.g. "%"
     var message: String
+    /// A calibration read-out, shown only in pre-release builds (see `BuildChannel`).
+    /// Never part of the verdict.
+    var diagnostic: String? = nil
 
     /// A problem the device measured and did not like, but is not certain enough to block on.
     ///
@@ -56,6 +59,28 @@ struct ComplianceReport: Codable, Equatable {
     /// confirms rather than places them from scratch. Nil when no face was detected.
     var suggestedCrownY: Double?
     var suggestedChinY: Double?
+    /// The face's horizontal midpoint, as a fraction of the width from the left. The export
+    /// centres its square here rather than on the middle of the photo. Nil when no face was
+    /// detected, in which case the export falls back to the middle.
+    var suggestedCenterX: Double?
+
+    /// Rules the phone normally measures on its own. When one of them comes back `.confirm`
+    /// with no measurement, the phone did not check it on this photo.
+    static let machineRuleIDs: Set<String> = ["head.tilt", "face.eyesopen", "img.sharp", "bg.plain"]
+
+    /// Machine checks that could not run on this photo.
+    ///
+    /// They are asked of the user rather than warned about — a phone without person
+    /// segmentation must not be told something is wrong on every photo (see
+    /// `ReviewVerdictTests.testAnUnmeasurableRuleDoesNotCountAsAConcern`) — but they are not
+    /// passes either. The review screen used to announce "Passed every automatic check"
+    /// over a report in which the background, the sharpness or the head angle had never
+    /// been measured.
+    var uncheckedMachineRules: [RuleResult] {
+        results.filter {
+            Self.machineRuleIDs.contains($0.id) && $0.status == .confirm && $0.measured == nil
+        }
+    }
 
     /// fail if any verified failure; else needsAttention if any assisted/confirm; else pass.
     var overall: ReportOutcome {

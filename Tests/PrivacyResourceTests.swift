@@ -154,6 +154,22 @@ final class PrivacyResourceTests: XCTestCase {
         ))
     }
 
+    /// After a retake, going back from Adjust to the review screen must keep the new check.
+    /// With the old `[capture]` retake stack, the review sat at depth 2 and this discarded it.
+    func testGoingBackToTheReviewAfterARetakeKeepsTheCheck() {
+        let reviewDepth = RootView.retakeStack().count + 1
+        XCTAssertFalse(RootView.shouldDiscardSession(
+            previousPathCount: reviewDepth + 1,
+            currentPathCount: reviewDepth,
+            hasSensitiveData: true
+        ))
+    }
+
+    /// A retake lands on the same stack as a first pass, so every later screen keeps its depth.
+    func testRetakeStackMatchesAFirstPass() {
+        XCTAssertEqual(RootView.retakeStack(), [.documentType, .capture])
+    }
+
     func testBackwardNavigationToCaptureDiscardsSession() {
         XCTAssertTrue(RootView.shouldDiscardSession(
             previousPathCount: 3,

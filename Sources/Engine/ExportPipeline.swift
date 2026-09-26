@@ -49,8 +49,43 @@ enum ExportPipeline {
     /// Convenience wrapper returning just the image (used by tests).
     static func makePassportImage(from image: CIImage,
                                   crownY: CGFloat,
-                                  chinY: CGFloat) -> CIImage? {
-        make(from: image, crownY: crownY, chinY: chinY).image
+                                  chinY: CGFloat,
+                                  centerX: CGFloat = 0.5) -> CIImage? {
+        make(from: image, crownY: crownY, chinY: chinY, centerX: centerX).image
+    }
+
+    /// The square the export crops, in the source's pixel space (top-left origin).
+    ///
+    /// Pure so the placement is testable without rendering. Horizontally the square is
+    /// centred on the **face**, not on the photo. It used to be `(w - side) / 2` — the middle
+    /// of the frame — so a face 9% off-centre, which still passes "Face is centered", came out
+    /// roughly a sixth of the square off-centre in the photo the customer paid for; a
+    /// landscape library photo could put an ear at the edge. `centerX` is the face's
+    /// horizontal midpoint as a fraction of the width; 0.5 reproduces the old placement
+    /// exactly, which is what every caller without a detected face still gets.
+    static func squareCrop(sourceWidth w: CGFloat, sourceHeight h: CGFloat,
+                           crownY: CGFloat, chinY: CGFloat,
+                           centerX: CGFloat = 0.5) -> CGRect {
+        let top = max(0, min(crownY, chinY))
+        let bottom = min(1, max(crownY, chinY))
+        let headPx = (bottom - top) * h
+        let side = min(headPx / targetHeadFraction, min(w, h))
+        let cx = centerX.isFinite ? min(max(centerX, 0), 1) : 0.5
+        // Written as an offset from the old centred origin so that cx = 0.5 is bit-for-bit
+        // the placement every existing test was written against.
+        let originX = (w - side) / 2 + (cx - 0.5) * w
+        let originY = top * h - side * marginAboveCrown
+        // Round the side first and clamp the rounded origin against it. Clamping first and
+        // rounding origin and side separately overshot by a pixel whenever the side ended in
+        // exactly .5 against the far edge: 1800 × 2400 with the head from 25% to 50% gives a
+        // 937.5 side and an 862.5 origin, which rounded to 938 and 863 — a square ending at
+        // 1801, which `make` then refused as "not square". Centring on the face is what made
+        // the right edge reachable; the bottom edge always had the same flaw. Wherever the
+        // old arithmetic did not overshoot, this gives the same rectangle.
+        let s = side.rounded()
+        return CGRect(x: min(max(originX.rounded(), 0), w - s),
+                      y: min(max(originY.rounded(), 0), h - s),
+                      width: s, height: s)
     }
 
     /// What a crop rectangle actually delivers, as opposed to what it was asked for.
@@ -91,6 +126,20 @@ enum ExportPipeline {
         return Double(headPx / side) * 100
     }
 
+    /// Whether the crop at these guides has enough real pixels to meet `PassportRules.pixelMin`
+    /// without upscaling — predicted without rendering, from the same `squareCrop` the export
+    /// uses. `make` refuses such a crop ("there isn't enough detail at this framing"), and
+    /// the Adjust screen used to show a green "Head will be sized correctly" and Continue for
+    /// it anyway, because the head-fraction prediction sizes the square to the head and so
+    /// can never see a resolution problem. Horizontal placement does not change the side.
+    static func predictedHasEnoughDetail(sourceWidth: CGFloat, sourceHeight: CGFloat,
+                                         crownY: CGFloat, chinY: CGFloat) -> Bool {
+        guard sourceWidth > 0, sourceHeight > 0 else { return false }
+        let rect = squareCrop(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                              crownY: crownY, chinY: chinY)
+        return rect.height >= CGFloat(PassportRules.pixelMin)
+    }
+
     /// Measures a finished crop rectangle against the head it was supposed to frame.
     ///
     /// Pure and internal so the delivered geometry is testable without a camera: every earlier
@@ -125,7 +174,8 @@ enum ExportPipeline {
     /// on-device so a crop failure pinpoints its own cause instead of me guessing blind.
     static func make(from image: CIImage,
                      crownY: CGFloat,
-                     chinY: CGFloat) -> (image: CIImage?, reason: String?) {
+                     chinY: CGFloat,
+                     centerX: CGFloat = 0.5) -> (image: CIImage?, reason: String?) {
         let extent = image.extent
         if extent.isInfinite || extent.isNull {
             return (nil, "source extent invalid (\(extent.debugDescription))")
@@ -161,16 +211,10 @@ enum ExportPipeline {
             return (nil, "the crown and chin lines are on top of each other — place them on your head and try again")
         }
 
-        let side = min(headPx / targetHeadFraction, min(w, h))
-        var originX = (w - side) / 2
-        var originY = top * h - side * marginAboveCrown
-        originX = min(max(originX, 0), w - side)
-        originY = min(max(originY, 0), h - side)
+        let cropRect = squareCrop(sourceWidth: w, sourceHeight: h,
+                                  crownY: crownY, chinY: chinY, centerX: centerX)
 
-        let cropRect = CGRect(x: originX.rounded(), y: originY.rounded(),
-                              width: side.rounded(), height: side.rounded())
-
-        // `side` above is clamped to the source's short edge, so the head fraction that
+        // The square's side is clamped to the source's short edge, so the head fraction that
         // results is not necessarily the one that was asked for. Measure the rectangle that
         // will actually be used, and refuse rather than deliver a photo that will be rejected
         // for head size. A retake costs a minute; a rejected passport application does not.

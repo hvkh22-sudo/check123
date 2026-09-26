@@ -64,6 +64,25 @@ final class ReviewVerdictTests: XCTestCase {
         XCTAssertEqual(report([headStraight, unmeasurable]).reviewVerdict, .clean)
     }
 
+    /// An unmeasured machine check keeps the verdict clean (above) but is still listed as
+    /// unchecked, so the screen cannot call the photo fully checked. A manual ask, a head size
+    /// the user sets, a measured finding and a pass without a number are none of them.
+    func testAnUnmeasuredMachineCheckIsListedAsUnchecked() {
+        let unmeasuredSharpness = RuleResult(id: "img.sharp", status: .confirm, measured: nil, unit: nil,
+                                             message: "Couldn't measure sharpness — check the photo is in focus.")
+        let unmeasuredBackground = RuleResult(id: "bg.plain", status: .confirm, measured: nil, unit: nil,
+                                              message: "Is the background a plain, light, shadow-free wall?")
+        let eyesOpen = RuleResult(id: "face.eyesopen", status: .verifiedPass, measured: nil, unit: nil,
+                                  message: "Both eyes open.")
+        let r = report([headStraight, eyesOpen, glasses, headSize, clutteredBackground,
+                        unmeasuredSharpness, unmeasuredBackground])
+        XCTAssertEqual(r.uncheckedMachineRules.map(\.id), ["img.sharp", "bg.plain"])
+    }
+
+    func testAFullyMeasuredReportHasNothingUnchecked() {
+        XCTAssertTrue(report([headStraight, faceCentred, glasses, headSize]).uncheckedMachineRules.isEmpty)
+    }
+
     // MARK: - The other two states still behave
 
     func testAVerifiedFailureBlocks() {

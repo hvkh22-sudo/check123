@@ -39,11 +39,14 @@ struct RootView: View {
     private let engine: ComplianceEngine = VisionComplianceEngine()
 
     enum Route: Hashable {
-        case documentType, capture, review, adjust, done
+        case documentType, capture, review, adjust
+        /// Findings the user exported past travel to the last screen too — by value, because
+        /// the session (and the report with them) is discarded before this screen appears.
+        case done(flagged: [String])
         // The guide positions travel WITH the navigation value, not through separate @State,
         // so the crop can never run with stale (0,0) guides — the "head span too small (0px)"
         // failure. Rounded to keep the value stably Hashable.
-        case export(crownY: Double, chinY: Double)
+        case export(crownY: Double, chinY: Double, centerX: Double)
     }
 
     var body: some View {
@@ -97,26 +100,37 @@ struct RootView: View {
                                          suggestedChinY: report?.suggestedChinY,
                                          onRecheck: { crownY, chinY in
                             // Carry the guides in the navigation value itself.
-                            path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY)))
-                        })
-                    case .export(let cy, let chy):
+                            path.append(Route.export(crownY: Double(crownY), chinY: Double(chinY),
+                                                     centerX: report?.suggestedCenterX ?? 0.5))
+                        },
+                                         onRetake: { restartAtCapture() })
+                    case .export(let cy, let chy, let cx):
                         ExportView(source: capturedImage,
                                    crownY: CGFloat(cy),
                                    chinY: CGFloat(chy),
+                                   centerX: CGFloat(cx),
                                    // The review screen's warning travels with the photo. Without
                                    // this the export screen said "Ready to export" under a green
                                    // seal for a photo the previous screen had just flagged.
-                                   flagged: report?.results.filter(\.isAdvisoryConcern).map(\.message) ?? [],
+                                   flagged: flaggedFindings,
                                    onDone: {
+                                       // Read before the discard below clears the report.
+                                       let flagged = flaggedFindings
                                        discardSensitiveSession()
                                        path = NavigationPath()
-                                       path.append(Route.done)
+                                       path.append(Route.done(flagged: flagged))
                                    },
                                    onRetake: { restartAtCapture() })
-                    case .done:
-                        DoneView(onRestart: {
-                            discardSensitiveSession()
-                            path = NavigationPath()
+                    case .done(let flagged):
+                        DoneView(flagged: flagged, onRestart: {
+                            // A flagged export's button says "Take a new photo" — so it goes
+                            // to the camera, not back to the intro.
+                            if flagged.isEmpty {
+                                discardSensitiveSession()
+                                path = NavigationPath()
+                            } else {
+                                restartAtCapture()
+                            }
                         })
                     }
                 }
@@ -147,6 +161,12 @@ struct RootView: View {
                 discardSensitiveSession()
             }
         }
+    }
+
+    /// What the review screen flagged and the user chose to go past. Only the rule's message
+    /// travels — no measurement, no image — so nothing sensitive outlives the session.
+    private var flaggedFindings: [String] {
+        report?.results.filter(\.isAdvisoryConcern).map(\.message) ?? []
     }
 
     private func startCheck(_ image: CIImage) {
@@ -229,10 +249,18 @@ struct RootView: View {
         hasSensitiveData && currentPathCount < previousPathCount && currentPathCount <= 2
     }
 
+    /// The stack a retake lands on: document type underneath capture, exactly as on a first
+    /// pass.
+    ///
+    /// It used to be `[capture]` alone, which shifted every later screen one place down.
+    /// Adjust sat at depth 3 instead of 4, so going back from it to the review screen matched
+    /// the "returned to capture" rule in `shouldDiscardSession`, the new check was wiped, and
+    /// the review screen read "That photo couldn't be checked." — after every retake.
+    static func retakeStack() -> [Route] { [.documentType, .capture] }
+
     private func restartAtCapture() {
         discardSensitiveSession()
-        path = NavigationPath()
-        path.append(Route.capture)
+        path = NavigationPath(Self.retakeStack())
     }
 
     private func discardSensitiveSession(resetNavigation: Bool = false) {
